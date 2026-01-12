@@ -33,24 +33,18 @@
           <div class="person-card member-card">
             <div class="avatar-wrapper">
               <div class="avatar">
-                <img src="/board-director-profile/alljdb.png" alt="" />
+                <img :src="avatarSrc(slot1)" alt="" />
               </div>
             </div>
 
             <div class="person-info">
               <div class="bank-meta">
-                <img
-                  class="bank-logo"
-                  src="/logoallmember/circle_scale/JDB.png"
-                  alt="JDB"
-                />
-                <span class="bank-name">ທະນາຄານ ຮ່ວມພັດທະນາ ມະຫາຊົນ</span>
+                <img class="bank-logo" :src="bankLogoSrc(slot1)" alt="JDB" />
+                <span class="bank-name">{{ bankName(slot1) }}</span>
               </div>
 
-              <div class="name">ທ່ານ ຈັນຊະນະ ສິງຫາວົງ</div>
-              <div class="position">
-                ຫົວໜ້າຄະນະກຳມະການຄົ້ນຄວ້ານະໂຍບາຍ
-              </div>
+              <div class="name">{{ personName(slot1) }}</div>
+              <div class="position">{{ personRole(slot1) }}</div>
             </div>
           </div>
         </div>
@@ -62,24 +56,18 @@
           <div class="person-card member-card">
             <div class="avatar-wrapper">
               <div class="avatar">
-                <img src="/board-director-profile/stb.webp" alt="" />
+                <img :src="avatarSrc(slot2)" alt="" />
               </div>
             </div>
 
             <div class="person-info">
               <div class="bank-meta">
-                <img
-                  class="bank-logo"
-                  src="/logoallmember/circle_scale/STB.png"
-                  alt="STB"
-                />
-                <span class="bank-name">ທະນາຄານ ເອັສທີ ຈຳກັດ</span>
+                <img class="bank-logo" :src="bankLogoSrc(slot2)" alt="STB" />
+                <span class="bank-name">{{ bankName(slot2) }}</span>
               </div>
 
-              <div class="name">ທ່ານ ເອກະລາດ ລັດຕະນະຈານ</div>
-              <div class="position">
-                ຮອງຫົວໜ້າຄະນະກຳມະການຄົ້ນຄວ້ານະໂຍບາຍ
-              </div>
+              <div class="name">{{ personName(slot2) }}</div>
+              <div class="position">{{ personRole(slot2) }}</div>
             </div>
           </div>
         </div>
@@ -102,52 +90,301 @@ import main_navbar from '../../../components/miannavbar/main_navbar.vue'
 import secondfooter from '../../../components/footer/mainfooter/secondfooter.vue'
 
 const orgLayout = ref(null)
-let ctx = null
 
 const PAN_DISTANCE = 90
+
+// ✅ API
+const API_URL = 'http://localhost:3000/api/boarddirector'
+const BASE_URL = 'http://localhost:3000'
+
+// ✅ Row mapping
+const ROW1_API_ID = 22
+const ROW2_API_ID = 21
+
+const loading = ref(false)
+const error = ref('')
+const abortCtrl = ref(null)
+
+// ✅ slots (no default info)
+const slot1 = ref(null) // id = 22
+const slot2 = ref(null) // id = 21
+
+// ✅ GSAP timelines (fix flicker by NOT reverting styles)
+let enterTl = null
+let leaveTween = null
+
+function norm(v) {
+  return String(v ?? '').trim()
+}
+
+function pick(obj, ...keys) {
+  for (const k of keys) {
+    const v = obj?.[k]
+    if (v !== null && v !== undefined && String(v).trim() !== '') return v
+  }
+  return ''
+}
+
+function resolveImageUrl(v, baseOverride) {
+  if (!v) return ''
+  let s = String(v).trim()
+  if (!s) return ''
+
+  if (
+    s.startsWith('http://') ||
+    s.startsWith('https://') ||
+    s.startsWith('data:') ||
+    s.startsWith('blob:')
+  ) {
+    return s
+  }
+
+  const base = String(baseOverride || BASE_URL || '').replace(/\/$/, '')
+  if (!base) return s
+
+  if (s.startsWith('/')) return base + s
+  s = s.replace(/^\.\//, '')
+  return base + '/' + s
+}
+
+function apiItemId(x) {
+  const raw = pick(
+    x,
+    'id',
+    'boarddirector_id',
+    'boardDirectorId',
+    'director_id',
+    'board_director_id'
+  )
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+// ✅ fetch fields from API: banklogo, bankname, profile, name, role
+function personName(x) {
+  return norm(
+    pick(
+      x,
+      'name',
+      'full_name',
+      'director_name',
+      'directorName',
+      'emp_name',
+      'empName'
+    )
+  )
+}
+
+function personRole(x) {
+  return norm(pick(x, 'role', 'position', 'title', 'director_role', 'directorRole'))
+}
+
+function bankName(x) {
+  const nested =
+    pick(x?.bank, 'bankname', 'bankName', 'bank_name', 'name') ||
+    pick(x?.bankInfo, 'bankname', 'bankName', 'bank_name', 'name') ||
+    ''
+  return norm(
+    nested ||
+      pick(
+        x,
+        'bankname',
+        'bankName',
+        'bank_name',
+        'member_bank',
+        'memberBank',
+        'company',
+        'company_name'
+      )
+  )
+}
+
+function avatarSrc(x) {
+  const raw = pick(
+    x,
+    // ✅ profile main
+    'profile',
+    'profile_img',
+    'profileImg',
+    'imageprofile',
+    'imageProfile',
+    // fallbacks (API only)
+    'image',
+    'avatar',
+    'photo',
+    'img',
+    'picture',
+    'director_image',
+    'directorImage'
+  )
+  return resolveImageUrl(raw) || ''
+}
+
+function bankLogoSrc(x) {
+  const nested =
+    pick(
+      x?.bank,
+      'banklogo',
+      'bankLogo',
+      'bank_logo',
+      'logo',
+      'logo_path',
+      'logoPath'
+    ) ||
+    pick(
+      x?.bankInfo,
+      'banklogo',
+      'bankLogo',
+      'bank_logo',
+      'logo',
+      'logo_path',
+      'logoPath'
+    ) ||
+    ''
+
+  const raw =
+    nested ||
+    pick(
+      x,
+      // ✅ banklogo main
+      'banklogo',
+      'bankLogo',
+      'bank_logo',
+      // fallbacks (API only)
+      'logo',
+      'logobank',
+      'logo_bank',
+      'logo_path',
+      'logoPath',
+      'bank_logo_path',
+      'bankLogoUrl',
+      'bank_logo_url'
+    )
+
+  return resolveImageUrl(raw) || ''
+}
+
+async function fetchPolicyResearchCommitteeByIds() {
+  try {
+    error.value = ''
+    loading.value = true
+
+    if (abortCtrl.value) abortCtrl.value.abort()
+    abortCtrl.value = new AbortController()
+
+    const res = await fetch(API_URL, { signal: abortCtrl.value.signal })
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status}${txt ? ` • ${txt.slice(0, 140)}` : ''}`)
+    }
+
+    const data = await res.json()
+
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.boarddirectors)
+            ? data.boarddirectors
+            : Array.isArray(data?.boarddirector)
+              ? data.boarddirector
+              : Array.isArray(data?.directors)
+                ? data.directors
+                : []
+
+    const wanted = new Set([ROW1_API_ID, ROW2_API_ID])
+    const byId = new Map()
+
+    ;(list || []).forEach((x) => {
+      const id = apiItemId(x)
+      if (id != null && wanted.has(id)) byId.set(id, x)
+    })
+
+    // ✅ strict row mapping
+    slot1.value = byId.get(ROW1_API_ID) || null
+    slot2.value = byId.get(ROW2_API_ID) || null
+  } catch (e) {
+    if (e?.name === 'AbortError') return
+    error.value = 'Failed to load (check API / CORS)'
+    console.error('[boarddirector fetch]', e)
+    slot1.value = null
+    slot2.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+function playEnterAnimation() {
+  if (!orgLayout.value) return
+
+  const root = orgLayout.value
+  const shell = root.querySelector('.org-shell')
+  const header = root.querySelector('.org-header')
+  const cards = Array.from(root.querySelectorAll('.person-card'))
+
+  // stop any previous animations
+  enterTl?.kill?.()
+  leaveTween?.kill?.()
+  gsap.killTweensOf([root, shell, header, ...cards])
+
+  // ✅ set start state BEFORE playing (prevents flicker)
+  gsap.set(root, { opacity: 0, x: PAN_DISTANCE, force3D: true })
+  gsap.set(shell, { opacity: 0, y: 28, scale: 0.985, force3D: true })
+  gsap.set(header, { opacity: 0, y: 16, force3D: true })
+  gsap.set(cards, { opacity: 0, y: 16, force3D: true })
+
+  enterTl = gsap.timeline({
+    defaults: { ease: 'power3.out', duration: 0.7 },
+  })
+
+  enterTl
+    .to(root, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' })
+    .to(shell, { opacity: 1, y: 0, scale: 1 }, '-=0.25')
+    .to(header, { opacity: 1, y: 0, duration: 0.55 }, '-=0.45')
+    .to(cards, { opacity: 1, y: 0, stagger: 0.08, duration: 0.6 }, '-=0.35')
+}
 
 onMounted(async () => {
   await nextTick()
 
-  ctx = gsap.context(() => {
-    const cards = gsap.utils.toArray('.person-card')
+  // ✅ hide immediately to avoid flash before GSAP sets from-state
+  if (orgLayout.value) {
+    gsap.set(orgLayout.value, { opacity: 0, x: PAN_DISTANCE, force3D: true })
+  }
 
-    const tl = gsap.timeline({
-      defaults: { ease: 'power3.out', duration: 0.8 },
-    })
+  await fetchPolicyResearchCommitteeByIds()
+  await nextTick()
 
-    // ✅ Pan เฉพาะ org-layout (เข้าจากขวา)
-    tl.fromTo(
-      orgLayout.value,
-      { opacity: 0, x: PAN_DISTANCE },
-      { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' }
-    )
-      .from('.org-shell', { opacity: 0, y: 40, scale: 0.97 }, '-=0.25')
-      .from('.org-header', { opacity: 0, y: 20 }, '-=0.45')
-      .from(
-        cards,
-        { opacity: 0, y: 24, filter: 'blur(6px)', stagger: 0.1 },
-        '-=0.35'
-      )
-  }, orgLayout.value)
+  playEnterAnimation()
 })
 
-// ✅ ออกเพจ: pan-out เฉพาะ org-layout (ออกซ้ายก่อนเปลี่ยน route)
 onBeforeRouteLeave((to, from, next) => {
   if (!orgLayout.value) return next()
 
+  // stop enter anim to avoid conflicts
+  enterTl?.kill?.()
+  leaveTween?.kill?.()
   gsap.killTweensOf(orgLayout.value)
-  gsap.to(orgLayout.value, {
+
+  // ✅ leave animation (no ctx.revert => no blink)
+  leaveTween = gsap.to(orgLayout.value, {
     x: -PAN_DISTANCE,
     opacity: 0,
-    duration: 0.45,
+    duration: 0.42,
     ease: 'power2.inOut',
+    overwrite: 'auto',
     onComplete: next,
+    onInterrupt: next,
   })
 })
 
 onUnmounted(() => {
-  if (ctx) ctx.revert()
+  // ✅ kill only (do NOT revert styles -> prevents flashing/blink)
+  enterTl?.kill?.()
+  leaveTween?.kill?.()
+  abortCtrl.value?.abort?.()
 })
 </script>
 
@@ -184,8 +421,6 @@ onUnmounted(() => {
 
 /* gradient token */
 .org-layout {
-
-
   --chip-bg: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.9),
@@ -485,7 +720,7 @@ onUnmounted(() => {
   .org-shell {
     padding-inline: 1.25rem;
     padding-block: 1.7rem 2.8rem;
-    
+
     border-radius: 2rem;
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.16),
       0 0 0 1px rgba(148, 163, 184, 0.18);

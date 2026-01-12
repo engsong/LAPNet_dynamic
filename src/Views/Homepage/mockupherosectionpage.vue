@@ -708,7 +708,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 32px;
-  width: 60%;
+  width: 65%;
   padding: 10px 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;

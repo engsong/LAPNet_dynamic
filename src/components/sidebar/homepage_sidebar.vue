@@ -203,7 +203,36 @@ const toggleViewer = () => {
 const closeViewer = () => {
   viewerOpen.value = false;
 };
-const refreshViewer = () => {
+
+/* ✅ fetch visitor from API (1d / 7d -> totals.pageviews) */
+const VISITOR_1D_URL = "http://localhost:3000/api/visitor/stats?range=1d";
+const VISITOR_7D_URL = "http://localhost:3000/api/visitor/stats?range=7d";
+
+const toNumber = (v: unknown) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const fetchPageviews = async (url: string) => {
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const json: any = await res.json();
+  return toNumber(json?.totals?.pageviews ?? 0);
+};
+
+const loadVisitor = async () => {
+  try {
+    const [day, week] = await Promise.all([fetchPageviews(VISITOR_1D_URL), fetchPageviews(VISITOR_7D_URL)]);
+    viewerToday.value = day;
+    viewerWeek.value = week;
+  } catch (e) {
+    console.error("Fetch visitor failed:", e);
+    // keep previous values on error
+  }
+};
+
+const refreshViewer = async () => {
+  await loadVisitor();
   pulseViewer();
 };
 
@@ -262,6 +291,9 @@ onMounted(async () => {
   initPosition();
   await nextTick();
 
+  // ✅ load visitor once
+  await loadVisitor();
+
   // init viewer popover hidden
   if (viewerPopoverEl.value) {
     gsap.set(viewerPopoverEl.value, {
@@ -299,6 +331,9 @@ watch(
     gsap.killTweensOf(el);
 
     if (open) {
+      // ✅ refresh when open
+      await loadVisitor();
+
       gsap.set(el, { pointerEvents: "auto" });
       gsap.to(el, { autoAlpha: 1, y: 0, scale: 1, duration: 0.22, ease: "power2.out" });
       pulseViewer();
@@ -613,8 +648,8 @@ watch(
   width: min(320px, 78vw);
   border-radius: 16px;
   overflow: hidden;
-
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.40), rgba(2, 6, 23, 0.26));
+  z-index: 9999;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.848), rgba(2, 6, 23, 0.85));
   border: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);

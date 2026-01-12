@@ -70,7 +70,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { gsap } from "gsap";
 import main_navbar from "../../../components/miannavbar/main_navbar.vue";
 import cpn_navbar from "./navbarcompany/cpn_navbar.vue";
@@ -78,35 +78,161 @@ import secondfooter from "../../../components/footer/mainfooter/secondfooter.vue
 
 const root = ref(null);
 
-/* ✅ keep your data (เดิมเป็น 2 แถว) */
-const rows = [
-  [
-    {
-      id: 1,
-      name: "ທ່ານ ນາງ ດາລີວັນ ຈັນທະລັງສີ",
-      role: "ກວດສອບພາຍໃນ",
-         photo: "/aboutus/company/lapnet_employee_image/audit/1.webp",
-    },
-  ],
-  [
-    {
-      id: 2,
-      name: "ທ່ານ ນາງ ນ້ຳທິບພະກອນ ວໍລະລາດ",
-      role: "ກວດສອບພາຍໃນ",
-      photo: "/aboutus/company/lapnet_employee_image/audit/2.webp",
-    },
-  ],
-];
+/** ✅ API */
+const EMP_API_ORIGIN = "http://localhost:3000";
+const EMP_API_URL = "http://localhost:3000/api/emp_lapnet";
 
-/* ✅ flatten ให้เป็น 1 แถว */
-const people = rows.flat();
+/**
+ * ✅ Mapping: old id -> api id
+ * id 1 = api id 9
+ * id 2 = api id 8
+ */
+const API_ID_BY_OLD_ID = Object.freeze({
+  1: 9,
+  2: 8,
+});
+
+/**
+ * ✅ ไม่ insert ข้อมูลชื่อ/ตำแหน่ง/รูปแล้ว
+ * จะดึงจาก API อย่างเดียว (คง structure: มี 2 การ์ด id=1,2)
+ */
+const people = ref([
+  { id: 1, name: "", role: "", photo: "" },
+  { id: 2, name: "", role: "", photo: "" },
+]);
 
 // initials fallback
 const getInitials = (name) => (name || "").trim().slice(0, 2) || "?";
 
+/** ✅ revoke objectURL กัน memory leak */
+const createdObjectUrls = new Set();
+
+const unwrapEmployees = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  if (payload && Array.isArray(payload.result)) return payload.result;
+  if (payload && Array.isArray(payload.items)) return payload.items;
+  return [];
+};
+
+const getEmpId = (emp) => {
+  const raw =
+    emp?.id ??
+    emp?.emp_id ??
+    emp?.employee_id ??
+    emp?.EMP_ID ??
+    emp?.ID ??
+    emp?.Id;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+};
+
+const getField = (obj, keys, fallback = "") => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return fallback;
+};
+
+const isProbablyBase64 = (s) => {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (t.startsWith("data:image/")) return false;
+  if (t.length < 50) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(t);
+};
+
+/**
+ * ✅ normalize รูปจาก API
+ * - data:image/...
+ * - base64 => data:image/png;base64,...
+ * - full url
+ * - /path หรือ path => prefix ด้วย origin
+ */
+const normalizeApiPhoto = (path) => {
+  if (!path || typeof path !== "string") return "";
+  const p = path.trim();
+  if (!p) return "";
+
+  if (p.startsWith("data:image/")) return p;
+  if (isProbablyBase64(p)) return `data:image/png;base64,${p}`;
+  if (/^https?:\/\//i.test(p)) return p;
+
+  if (p.startsWith("/")) return `${EMP_API_ORIGIN}${p}`;
+  return `${EMP_API_ORIGIN}/${p}`;
+};
+
+/** ✅ fetch รูปเป็น blob แล้วสร้าง objectURL */
+const fetchImageAsObjectUrl = async (url) => {
+  if (!url) return "";
+  if (url.startsWith("data:image/")) return url;
+
+  try {
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    createdObjectUrls.add(objUrl);
+    return objUrl;
+  } catch {
+    return "";
+  }
+};
+
+const getNameFromEmp = (emp) =>
+  getField(emp, ["full_name", "name", "emp_name", "employee_name", "fullname"], "");
+
+const getRoleFromEmp = (emp) =>
+  getField(emp, ["role", "position", "title", "emp_position", "employee_position"], "");
+
+const getRawPhotoFromEmp = (emp) =>
+  getField(
+    emp,
+    [
+      "imageprofile", // ✅ ใช้ field นี้เป็นหลัก
+      "imageProfile",
+      "image_profile",
+      "profileImage",
+      "profile_image",
+      "photo",
+      "photo_url",
+      "avatar",
+      "image",
+      "img",
+      "picture",
+    ],
+    ""
+  );
+
+const applyPersonFromEmp = async (person, emp) => {
+  if (!person || !emp) return;
+
+  // ✅ map name/role จาก API
+  person.name = getNameFromEmp(emp) || "";
+  person.role = getRoleFromEmp(emp) || "";
+
+  // ✅ map photo จาก API
+  const raw = getRawPhotoFromEmp(emp);
+  const normalized = normalizeApiPhoto(raw);
+  if (!normalized) {
+    person.photo = "";
+    return;
+  }
+
+  if (normalized.startsWith("data:image/")) {
+    person.photo = normalized;
+    return;
+  }
+
+  const objUrl = await fetchImageAsObjectUrl(normalized);
+  person.photo = objUrl || normalized;
+};
+
 let gsapCtx;
 
-onMounted(() => {
+const runGsap = () => {
   gsapCtx = gsap.context(() => {
     const tl = gsap.timeline({
       defaults: { ease: "power3.out" },
@@ -154,10 +280,48 @@ onMounted(() => {
       yoyo: true,
     });
   }, root.value);
+};
+
+onMounted(async () => {
+  // ✅ fetch API แล้ว map ตาม mapping ที่กำหนด
+  try {
+    const res = await fetch(EMP_API_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    const list = unwrapEmployees(json);
+
+    const mapByApiId = new Map();
+    for (const emp of list) {
+      const id = getEmpId(emp);
+      if (id != null) mapByApiId.set(id, emp);
+    }
+
+    // id 1 -> api 9, id 2 -> api 8
+    await Promise.all(
+      people.value.map((p) => {
+        const apiId = API_ID_BY_OLD_ID[p.id];
+        const emp = apiId ? mapByApiId.get(apiId) : null;
+        return applyPersonFromEmp(p, emp);
+      })
+    );
+  } catch {
+    // ถ้า API ล่ม/ผิดพลาด -> คน/ตำแหน่ง/รูป จะเป็นค่าว่าง (ไม่ insert ข้อมูลเดิม)
+  }
+
+  await nextTick();
+  runGsap();
 });
 
 onBeforeUnmount(() => {
   if (gsapCtx) gsapCtx.revert();
+
+  // ✅ revoke objectURL กัน memory leak
+  for (const u of createdObjectUrls) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {}
+  }
+  createdObjectUrls.clear();
 });
 </script>
 

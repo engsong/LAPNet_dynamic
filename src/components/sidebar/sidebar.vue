@@ -140,7 +140,7 @@
           </div>
 
           <!-- ✅ Viewer container (NEW) -->
-          <div class="viewerContainer">
+          <div class="viewerContainer" :class="{ 'is-open': viewerOpen }">
             <button
               ref="viewerBtnEl"
               class="viewerBtn"
@@ -200,14 +200,40 @@ const sidebarEl = ref(null)
 const backdropEl = ref(null)
 
 /* ===========================
-   ✅ Visitor overlay state
+   ✅ Visitor overlay state + API
    =========================== */
 const viewerOpen = ref(false)
-const viewerToday = ref(300)
-const viewerWeek = ref(300)
+const viewerToday = ref(0)
+const viewerWeek = ref(0)
 
 const viewerPopoverEl = ref(null)
 const viewerBtnEl = ref(null)
+
+const VISITOR_1D_URL = 'http://localhost:3000/api/visitor/stats?range=1d'
+const VISITOR_7D_URL = 'http://localhost:3000/api/visitor/stats?range=7d'
+
+const toNumber = (v) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+const getTotalsPageviews = (payload) => toNumber(payload?.totals?.pageviews ?? 0)
+
+const fetchJson = async (url) => {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new Error(`API error ${res.status}`)
+  return res.json()
+}
+
+const fetchVisitor = async () => {
+  try {
+    const [dayJson, weekJson] = await Promise.all([fetchJson(VISITOR_1D_URL), fetchJson(VISITOR_7D_URL)])
+    viewerToday.value = getTotalsPageviews(dayJson)
+    viewerWeek.value = getTotalsPageviews(weekJson)
+  } catch (e) {
+    console.error('Fetch visitor failed:', e)
+    // keep old values if API fails
+  }
+}
 
 const toggleViewer = () => {
   viewerOpen.value = !viewerOpen.value
@@ -215,19 +241,10 @@ const toggleViewer = () => {
 const closeViewer = () => {
   viewerOpen.value = false
 }
-const refreshViewer = () => {
+const refreshViewer = async () => {
+  await fetchVisitor()
   pulseViewer()
 }
-
-/**
- * FUTURE (DB/API):
- * async function loadViews() {
- *   const res = await fetch("/api/views") // { today: number, week: number }
- *   const data = await res.json()
- *   viewerToday.value = data.today
- *   viewerWeek.value = data.week
- * }
- */
 
 const pulseViewer = () => {
   if (!viewerBtnEl.value) return
@@ -281,6 +298,9 @@ onMounted(async () => {
   window.addEventListener('resize', initPosition)
   window.addEventListener('keydown', onKeydown)
 
+  // ✅ load visitor stats once
+  await fetchVisitor()
+
   await nextTick()
 
   // init viewer popover hidden
@@ -323,6 +343,9 @@ watch(
     gsap.killTweensOf(el)
 
     if (open) {
+      // ✅ refresh when opening
+      await fetchVisitor()
+
       gsap.set(el, { pointerEvents: 'auto' })
       gsap.to(el, { autoAlpha: 1, y: 0, scale: 1, duration: 0.22, ease: 'power2.out' })
       el.setAttribute('aria-hidden', 'false')
@@ -655,6 +678,12 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1;
+}
+
+/* ✅ ตามที่ขอ: ตอนกดให้ overlay อยู่บนสุด */
+.viewerContainer.is-open {
+  z-index: 9999;
 }
 
 .viewerBtn {
@@ -685,14 +714,14 @@ watch(
   border-radius: 16px;
   overflow: hidden;
 
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.40), rgba(2, 6, 23, 0.26));
+   background: linear-gradient(180deg, rgba(15, 23, 42, 0.848), rgba(2, 6, 23, 0.85));
   border: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
 
   transform-origin: bottom right;
-  z-index: 5;
+  z-index: 9999; /* ✅ force on top */
 }
 
 .viewerPopoverInner {

@@ -41,11 +41,7 @@
           :key="rowIndex"
           :class="['org-row', `org-row--${rowIndex}`]"
         >
-          <article
-            v-for="person in row"
-            :key="person.id"
-            class="org-card"
-          >
+          <article v-for="person in row" :key="person.id" class="org-card">
             <!-- AVATAR -->
             <div class="org-avatar-wrapper">
               <div class="org-avatar-ring">
@@ -82,112 +78,290 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { gsap } from 'gsap'
-import main_navbar from '../../../components/miannavbar/main_navbar.vue'
-import cpn_navbar from './navbarcompany/cpn_navbar.vue'
-import secondfooter from '../../../components/footer/mainfooter/secondfooter.vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { gsap } from "gsap";
+import main_navbar from "../../../components/miannavbar/main_navbar.vue";
+import cpn_navbar from "./navbarcompany/cpn_navbar.vue";
+import secondfooter from "../../../components/footer/mainfooter/secondfooter.vue";
 
-const root = ref(null)
+const root = ref(null);
+
+/** ✅ API */
+const EMP_API_ORIGIN = "http://localhost:3000";
+const EMP_API_URL = "http://localhost:3000/api/emp_lapnet";
 
 /**
- * โครงสร้างตามรูป:
- *  row 0: CEO
- *  row 1: Deputy CEO
+ * ✅ Mapping: old id (หน้าเดิม) -> api id
+ * row 0: CEO (old id 1)  -> api id 36
+ * row 1: Deputy (old id 2)-> api id 35
  */
-const rows = [
-  [
-    {
-      id: 1,
-      name: 'ທ່ານ ສີສະໝອນ ສຣິດທິຣາດ',  
-      role: 'ຜູ້ອຳນວຍການ',
-      photo: '/aboutus/company/lapnet_employee_image/CEO/CEO.png'                 
-    }
-  ],
-  [
-    {
-      id: 2,
-      name: 'ທ່ານ ນາງ ນີວະສອນ ມາລາທິບ', 
-      role: 'ຮອງຜູ້ອຳນວຍການ',
-  photo: '/aboutus/company/lapnet_employee_image/CEO/CFO.png'      
-    }
-  ]
-]
+const API_ID_BY_OLD_ID = Object.freeze({
+  1: 36,
+  2: 35,
+});
+
+/** ✅ rows ที่ใช้ render */
+const rows = ref([
+  [{ id: 1, name: "—", role: "—", photo: "" }],
+  [{ id: 2, name: "—", role: "—", photo: "" }],
+]);
+
+/** ✅ เก็บรูปที่ fetch มาแล้ว (oldId -> objectURL หรือ dataURL) */
+const photoObjectUrlByOldId = ref({});
+const createdObjectUrls = new Set();
+
+const apiEmployees = ref([]);
 
 // initials fallback (2 ตัวแรก)
-const getInitials = (name) => (name || '').trim().slice(0, 2) || '?'
+const getInitials = (name) => (name || "").trim().slice(0, 2) || "?";
 
-let gsapCtx
+const unwrapEmployees = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  if (payload && Array.isArray(payload.result)) return payload.result;
+  if (payload && Array.isArray(payload.items)) return payload.items;
+  return [];
+};
 
-onMounted(() => {
+const getEmpId = (emp) => {
+  const raw =
+    emp?.id ??
+    emp?.emp_id ??
+    emp?.employee_id ??
+    emp?.EMP_ID ??
+    emp?.ID ??
+    emp?.Id;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+};
+
+const getField = (obj, keys, fallback = "") => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return fallback;
+};
+
+const isProbablyBase64 = (s) => {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (t.startsWith("data:image/")) return false;
+  if (t.length < 50) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(t);
+};
+
+/** ✅ normalize รูปจาก API ให้กลายเป็น URL ที่ fetch ได้ */
+const normalizeApiPhoto = (path) => {
+  if (!path || typeof path !== "string") return "";
+  const p = path.trim();
+  if (!p) return "";
+
+  if (p.startsWith("data:image/")) return p;
+  if (isProbablyBase64(p)) return `data:image/png;base64,${p}`;
+  if (/^https?:\/\//i.test(p)) return p;
+
+  if (p.startsWith("/")) return `${EMP_API_ORIGIN}${p}`;
+  return `${EMP_API_ORIGIN}/${p}`;
+};
+
+/**
+ * ✅ ใช้ position จาก API เป็น role ตามที่ต้องการ
+ * (สำรองคีย์อื่นเผื่อ API ชื่อไม่ตรง)
+ */
+const getRoleFromEmp = (emp) => {
+  return getField(emp, ["position", "role", "title", "emp_position", "employee_position"], "");
+};
+
+/** ✅ ดึงรูปจาก imageprofile เป็นหลัก */
+const getRawPhotoFromEmp = (emp) => {
+  return getField(
+    emp,
+    [
+      "imageprofile",
+      "imageProfile",
+      "image_profile",
+      "profileImage",
+      "profile_image",
+      "photo",
+      "photo_url",
+      "avatar",
+      "image",
+      "img",
+      "picture",
+    ],
+    ""
+  );
+};
+
+const findEmpByApiId = (apiId) => {
+  const list = apiEmployees.value || [];
+  for (const emp of list) {
+    if (getEmpId(emp) === Number(apiId)) return emp;
+  }
+  return null;
+};
+
+/** ✅ fetch รูปเป็น blob แล้วสร้าง objectURL */
+const fetchImageAsObjectUrl = async (url) => {
+  if (!url) return "";
+  if (url.startsWith("data:image/")) return url;
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      // ถ้ารูปต้องใช้ cookie/session ให้เปิดบรรทัดนี้
+      // credentials: "include",
+    });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    createdObjectUrls.add(objUrl);
+    return objUrl;
+  } catch {
+    return "";
+  }
+};
+
+const preloadPhotos = async () => {
+  const targets = [1, 2];
+
+  const jobs = targets.map(async (oldId) => {
+    const apiId = API_ID_BY_OLD_ID[oldId];
+    const emp = apiId ? findEmpByApiId(apiId) : null;
+    if (!emp) return;
+
+    const raw = getRawPhotoFromEmp(emp);
+    const normalized = normalizeApiPhoto(raw);
+    if (!normalized) return;
+
+    // data url/base64 ใช้ได้เลย
+    if (normalized.startsWith("data:image/")) {
+      photoObjectUrlByOldId.value[oldId] = normalized;
+      return;
+    }
+
+    const objUrl = await fetchImageAsObjectUrl(normalized);
+    photoObjectUrlByOldId.value[oldId] = objUrl || normalized; // fallback url ตรง
+  });
+
+  await Promise.all(jobs);
+};
+
+const buildPerson = (oldId) => {
+  const apiId = API_ID_BY_OLD_ID[oldId];
+  const emp = apiId ? findEmpByApiId(apiId) : null;
+
+  const name = emp
+    ? getField(emp, ["full_name", "name", "emp_name", "employee_name", "fullname"], "")
+    : "";
+
+  const role = emp ? getRoleFromEmp(emp) : "";
+
+  const photo = photoObjectUrlByOldId.value?.[oldId] || "";
+
+  return {
+    id: oldId, // ✅ old id ไม่เปลี่ยน
+    name: name || "—",
+    role: role || "—",
+    photo,
+  };
+};
+
+const fetchEmployees = async () => {
+  const res = await fetch(EMP_API_URL, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+  const json = await res.json();
+  apiEmployees.value = unwrapEmployees(json);
+};
+
+let gsapCtx;
+let hasAnimated = false;
+
+const runGsap = () => {
+  if (hasAnimated) return;
+  hasAnimated = true;
+
   gsapCtx = gsap.context(() => {
     const tl = gsap.timeline({
-      defaults: { ease: 'power3.out' }
-    })
+      defaults: { ease: "power3.out" },
+    });
 
-    tl.from('.org-container', {
+    tl.from(".org-container", {
       opacity: 0,
       y: 48,
       scale: 0.97,
-      duration: 0.8
+      duration: 0.8,
     })
+      .from(".org-header-left", { x: -40, opacity: 0, duration: 0.6 }, "-=0.4")
+      .from(".org-header-right", { x: 40, opacity: 0, duration: 0.6 }, "-=0.5")
+      .from(".org-frame", { opacity: 0, y: 24, duration: 0.7 }, "-=0.25")
+      .from(".org-row", { opacity: 0, y: 40, duration: 0.7, stagger: 0.18 }, "-=0.2")
       .from(
-        '.org-header-left',
-        { x: -40, opacity: 0, duration: 0.6 },
-        '-=0.4'
-      )
-      .from(
-        '.org-header-right',
-        { x: 40, opacity: 0, duration: 0.6 },
-        '-=0.5'
-      )
-      .from(
-        '.org-frame',
-        { opacity: 0, y: 24, duration: 0.7 },
-        '-=0.25'
-      )
-      .from(
-        '.org-row',
-        { opacity: 0, y: 40, duration: 0.7, stagger: 0.18 },
-        '-=0.2'
-      )
-      .from(
-        '.org-card',
+        ".org-card",
         {
           opacity: 0,
           y: 30,
           rotateX: -18,
-          transformOrigin: '50% 100%',
+          transformOrigin: "50% 100%",
           duration: 0.9,
-          stagger: { each: 0.15, from: 'start' }
+          stagger: { each: 0.15, from: "start" },
         },
-        '-=0.5'
+        "-=0.5"
       )
       .from(
-        '.org-avatar-ring',
+        ".org-avatar-ring",
         {
           scale: 0.5,
           opacity: 0,
           duration: 0.55,
-          stagger: { each: 0.18, from: 'start' }
+          stagger: { each: 0.18, from: "start" },
         },
-        '-=0.55'
-      )
+        "-=0.55"
+      );
 
     // soft floating effect
-    gsap.to('.org-card', {
+    gsap.to(".org-card", {
       y: -4,
       duration: 3.4,
-      ease: 'sine.inOut',
+      ease: "sine.inOut",
       repeat: -1,
-      yoyo: true
-    })
-  }, root.value)
-})
+      yoyo: true,
+    });
+  }, root.value);
+};
+
+onMounted(async () => {
+  try {
+    await fetchEmployees();
+    await preloadPhotos();
+
+    // ✅ สร้าง rows จาก API (position -> role)
+    rows.value = [[buildPerson(1)], [buildPerson(2)]];
+  } catch (e) {
+    // ถ้า API ล้มเหลว ยังไม่ทำให้หน้าแตก
+    rows.value = [
+      [{ id: 1, name: "—", role: "—", photo: "" }],
+      [{ id: 2, name: "—", role: "—", photo: "" }],
+    ];
+  }
+
+  await nextTick();
+  runGsap();
+});
 
 onBeforeUnmount(() => {
-  if (gsapCtx) gsapCtx.revert()
-})
+  if (gsapCtx) gsapCtx.revert();
+
+  // ✅ revoke objectURL กัน memory leak
+  for (const u of createdObjectUrls) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {}
+  }
+  createdObjectUrls.clear();
+});
 </script>
 
 <style scoped>
@@ -300,7 +474,7 @@ onBeforeUnmount(() => {
 /* CARD – กว้างขึ้น + 3D / gradient border */
 .org-card {
   position: relative;
-  width: 420px;          /* เดิม 310 → เพิ่มความกว้าง */
+  width: 420px; /* เดิม 310 → เพิ่มความกว้าง */
   max-width: 90%;
   background: radial-gradient(circle at top, #123765, #061429);
   border-radius: 20px;
@@ -311,19 +485,17 @@ onBeforeUnmount(() => {
   transform-style: preserve-3d;
   border: 1px solid rgba(148, 163, 184, 0.45);
   overflow: visible;
-  transition:
-    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
     background 0.35s ease-out;
 }
 
 /* gradient glow border (ใช้ pseudo) */
 .org-card::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  
   opacity: 0;
   z-index: -1;
   transition: opacity 0.35s ease-out;
@@ -416,12 +588,11 @@ onBeforeUnmount(() => {
     align-items: flex-start;
     gap: 16px;
     padding: 22px 24px;
- 
   }
-  .org-header-en{
+  .org-header-en {
     font-size: 13px;
   }
-  .org-logo-circle{
+  .org-logo-circle {
     width: 60px;
     height: 60px;
   }

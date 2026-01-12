@@ -33,22 +33,62 @@ const menuItems = [
     label: 'ຜະລິດຕະພັນ ແລະ ການບໍລິການ',
     to: '/products',
     children: [
-      { label: 'ຜະລິດຕະພັນ ແລະ ການບໍລິການ ທັງໝົດ', to: '/products_service/allproduct' },
-      { label: 'ກວດຍອດເງິນຂ້າມທະນາຄານຜ່ານຕູ້ ATM', to: '/products_service/atm-inquiry' },
-      { label: 'ຖອນເງິນສົດຂ້າມທະນາຄານຜ່ານຕູ້ ATM', to: '/products_service/atm-cash-withdraw' },
-      { label: 'ໂອນເງິນຂ້າມທະນາຄານຜ່ານຕູ້ ATM', to: '/products_service/atm-transfer' },
-      { label: 'ໂອນເງິນຂ້າມທະນາຄານເທິງມືຖື', to: '/products_service/mobile-transfer' },
-      { label: 'ຊຳລະຂ້າມທະນາຄານຜ່ານ LAPNet', to: '/products_service/qr-payment' },
-      { label: 'ຊຳລະຂ້າມແດນຜ່ານ QR CODE  ', to: '/products_service/crossborder' }
+      {
+        label: 'ຜະລິດຕະພັນ ແລະ ການບໍລິການ ທັງໝົດ',
+        to: '/products_service/allproduct',
+        icon: 'ri-layout-grid-fill'
+      },
+      {
+        label: 'ກວດຍອດເງິນຂ້າມທະນາຄານຜ່ານຕູ້ ATM',
+        to: '/products_service/atm-inquiry',
+        icon: 'ri-qr-scan-2-line'
+      },
+      {
+        label: 'ຖອນເງິນສົດຂ້າມທະນາຄານຜ່ານຕູ້ ATM',
+        to: '/products_service/atm-cash-withdraw',
+        icon: 'fa-solid fa-money-bill-transfer'
+      },
+      {
+        label: 'ໂອນເງິນຂ້າມທະນາຄານຜ່ານຕູ້ ATM',
+        to: '/products_service/atm-transfer',
+        icon: 'fa-solid fa-right-left'
+      },
+      {
+        label: 'ໂອນເງິນຂ້າມທະນາຄານເທິງມືຖື',
+        to: '/products_service/mobile-transfer',
+        icon: 'fa-solid fa-mobile-screen'
+      },
+      {
+        label: 'ຊຳລະຂ້າມທະນາຄານຜ່ານ LAPNet',
+        to: '/products_service/qr-payment',
+        icon: 'fa-solid fa-money-bill-wave'
+      },
+      {
+        label: 'ຊຳລະຂ້າມແດນຜ່ານ QR CODE  ',
+        to: '/products_service/crossborder',
+        icon: 'fa-solid fa-qrcode'
+      }
     ]
   },
   {
     label: 'ສະມາຊິກ',
     to: '/members',
     children: [
-      { label: 'ສະມາຊິກລະບົບບັດທະນາຄານຮ່ວມກັນ', to: '/member/membercardATM' },
-      { label: 'ສະມາຊິກລະບົບຊຳລະຂ້າມທະນາຄານເທິງມືຖື', to: '/member/mobile_banking' },
-      { label: 'ສະມາຊິກລະບົບຊຳລະຂ້າມແດນຜ່ານ QR Code', to: '/member/crossborder' }
+      {
+        label: 'ສະມາຊິກລະບົບບັດທະນາຄານຮ່ວມກັນ',
+        to: '/member/membercardATM',
+        icon: 'fa-solid fa-credit-card'
+      },
+      {
+        label: 'ສະມາຊິກລະບົບຊຳລະຂ້າມທະນາຄານເທິງມືຖື',
+        to: '/member/mobile_banking',
+        icon: 'fa-solid fa-mobile-screen-button'
+      },
+      {
+        label: 'ສະມາຊິກລະບົບຊຳລະຂ້າມແດນຜ່ານ QR Code',
+        to: '/member/crossborder',
+        icon: 'fa-solid fa-earth-asia'
+      }
     ]
   },
   { label: 'ຂ່າວ ແລະ ກິດຈະກຳ', to: '/bloggrid' },
@@ -57,11 +97,19 @@ const menuItems = [
     label: 'ກ່ຽວກັບພວກເຮົາ',
     to: '/about',
     children: [
-      { label: 'ວິໄສທັດ ແລະ ພາລະກິດ', to: '/aboutus/vision' },
-      { label: 'ພາລະບົດບາດ', to: '/aboutus/role' },
-      { label: 'ຄວາມເປັນມາ', to: '/aboutus/history' },
-      { label: 'ສະພາບໍລິຫານ', to: '/aboutus/board_director' },
-      { label: 'ໂຄງຮ່າງການຈັດຕັ້ງ', to: '/aboutus/companystructureimage' }
+      { label: 'ວິໄສທັດ ແລະ ພາລະກິດ', to: '/aboutus/vision', icon: 'fa-solid fa-lightbulb' },
+      { label: 'ພາລະບົດບາດ', to: '/aboutus/role', icon: 'fa-solid fa-list-check' },
+      { label: 'ຄວາມເປັນມາ', to: '/aboutus/history', icon: 'fa-solid fa-timeline' },
+      {
+        label: 'ສະພາບໍລິຫານ',
+        to: '/aboutus/board_director',
+        icon: 'fa-solid fa-users-between-lines'
+      },
+      {
+        label: 'ໂຄງຮ່າງການຈັດຕັ້ງ',
+        to: '/aboutus/companystructureimage',
+        icon: 'fa-solid fa-sitemap'
+      }
     ]
   },
   { label: 'ຕິດຕໍ່ພວກເຮົາ', to: '/contactus', isCta: true }
@@ -277,6 +325,7 @@ onMounted(() => {
           <ul class="dropdown-list">
             <li v-for="(child, cIndex) in item.children" :key="cIndex" class="dropdown-item">
               <RouterLink class="dropdown-link" :to="child.to">
+                <i :class="['dropdown-icon', child.icon]" aria-hidden="true"></i>
                 {{ child.label }}
               </RouterLink>
             </li>
@@ -479,6 +528,17 @@ onMounted(() => {
   border-bottom: none;
 }
 
+/* ✅ Font Awesome icon in dropdown */
+.dropdown-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  margin-right: 10px;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
 /* ใช้กับ RouterLink */
 .dropdown-link {
   display: block;
@@ -498,6 +558,10 @@ onMounted(() => {
   color: #fff;
   padding-left: 28px;
   text-shadow: 0 0 5px rgba(0, 200, 255, 0.8);
+}
+
+.dropdown-link:hover .dropdown-icon {
+  transform: translateX(2px);
 }
 
 .dropdown-link::before {

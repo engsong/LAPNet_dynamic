@@ -7,7 +7,6 @@
       <div class="viewerCard" :class="{ open: viewerOpen }">
         <div class="viewerGlow" aria-hidden="true"></div>
 
-        
         <button
           class="viewerHeader"
           :class="{ open: viewerOpen }"
@@ -16,19 +15,17 @@
           :aria-expanded="viewerOpen"
           aria-label="Open visitor panel"
         >
-          <div class="eyeIcon" ref="eyeIconRef" aria-hidden="true"><i class="fa-solid fa-eye"></i></div>
-
-        
-          <div v-if="viewerOpen" class="headerRight">
-            <div class="headerTitle">Visitor</div>
-       
+          <div class="eyeIcon" ref="eyeIconRef" aria-hidden="true">
+            <i class="fa-solid fa-eye"></i>
           </div>
 
-   
+          <div v-if="viewerOpen" class="headerRight">
+            <div class="headerTitle">Visitor</div>
+          </div>
+
           <div v-if="viewerOpen" class="headerCaret" aria-hidden="true">⌃</div>
         </button>
 
-      
         <div class="viewerPanel" ref="viewerPanelRef" :aria-hidden="!viewerOpen">
           <div class="viewerPanelInner">
             <div class="row">
@@ -234,7 +231,6 @@
   .viewerWrap{
     display: none;
   }
-  
 }
 </style>
 
@@ -242,9 +238,13 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue"
 import { gsap } from "gsap"
 
-/* ✅ Static now (future: fetch from DB/API) */
-const viewerToday = ref(300)
-const viewerWeek = ref(300)
+/* ✅ APIs */
+const VISITOR_1D_URL = "http://localhost:3000/api/visitor/stats?range=1d"
+const VISITOR_7D_URL = "http://localhost:3000/api/visitor/stats?range=7d"
+
+/* ✅ visitor counts */
+const viewerToday = ref(0)
+const viewerWeek = ref(0)
 
 const viewerOpen = ref(false)
 
@@ -258,19 +258,43 @@ function toggleViewer() {
 function closeViewer() {
   viewerOpen.value = false
 }
-function refreshViewer() {
+
+async function refreshViewer() {
+  await fetchVisitor()
   pulseViewer()
 }
 
-/**
- * ✅ FUTURE (DB/API example):
- * async function loadViews() {
- *   const res = await fetch("/api/views") // { today: number, week: number }
- *   const data = await res.json()
- *   viewerToday.value = data.today
- *   viewerWeek.value = data.week
- * }
- */
+/* ✅ get totals.pageviews */
+const toNumber = (v) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+const getTotalsPageviews = (payload) => {
+  return toNumber(payload?.totals?.pageviews ?? 0)
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: "application/json" } })
+  if (!res.ok) throw new Error(`API error ${res.status}`)
+  return res.json()
+}
+
+async function fetchVisitor() {
+  try {
+    const [dayJson, weekJson] = await Promise.all([
+      fetchJson(VISITOR_1D_URL),
+      fetchJson(VISITOR_7D_URL),
+    ])
+
+    // ✅ ตามที่ขอ: เอาค่า totals.pageviews ไปใส่
+    viewerToday.value = getTotalsPageviews(dayJson)
+    viewerWeek.value = getTotalsPageviews(weekJson)
+  } catch (e) {
+    console.error("Fetch visitor failed:", e)
+    // keep old values if fetch fails
+  }
+}
 
 function pulseViewer() {
   const wrap = viewerWrapRef.value
@@ -297,6 +321,10 @@ function onKeydown(e) {
 
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown)
+
+  // ✅ load visitor stats on mount
+  await fetchVisitor()
+
   await nextTick()
 
   // entrance
@@ -334,6 +362,9 @@ watch(viewerOpen, async (open) => {
   gsap.killTweensOf(panel)
 
   if (open) {
+    // ✅ refresh when open
+    await fetchVisitor()
+
     gsap.set(panel, { pointerEvents: "auto" })
     gsap.fromTo(
       panel,

@@ -342,6 +342,7 @@ watch(
   height: 60vh;
   border-radius: 1.1rem;
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(56, 189, 248, 0.9));
+  overflow: hidden; /* ✅ FIX: clip overlay/glow inside card border */
 }
 
 .card-inner {
@@ -354,6 +355,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+
+  overflow: hidden; /* ✅ FIX: prevent ::before white overlay from spilling out */
 }
 
 .card-inner::before {

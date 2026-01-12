@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { gsap } from "gsap";
 import main_navbar from "../../../components/miannavbar/main_navbar.vue";
 import cpn_navbar from "./navbarcompany/cpn_navbar.vue";
@@ -82,52 +82,290 @@ import secondfooter from "../../../components/footer/mainfooter/secondfooter.vue
 
 const root = ref(null);
 
+/** ✅ API */
+const EMP_API_ORIGIN = "http://localhost:3000";
+const EMP_API_URL = "http://localhost:3000/api/emp_lapnet";
+
 /**
- * ✅ ปรับเหลือ 2 row:
- * row 0: 1 คน (หัวหน้าแผนก)
- * row 1: 3 คน (เอา row 2 เดิมขึ้นมาต่อท้าย row 1)
+ * ✅ โครงสร้างเดิม "ห้ามเปลี่ยน"
+ * - 2 rows:
+ *   row 0: 1 คน
+ *   row 1: 3 คน
+ * - แค่เติม name/role/photo จาก API (department = Finance & Accounting)
+ * - role ใช้จาก API field "role"
  */
-const rows = [
+const rows = ref([
   // row 0
   [
     {
       id: 1,
-      name: "ທ່ານ ວັດທະນາ ວໍລະບຸດ",
-      role: "ຫົວໜ້າພະແນກບັນຊີ ແລະ ການເງິນ",
-      photo: "/aboutus/company/lapnet_employee_image/finance/1.png",
+      name: "—",
+      role: "—",
+      photo: "",
     },
   ],
-  // row 1 (รวม 3 คน)
+  // row 1 (3 คน)
   [
     {
       id: 2,
-      name: "ທ່ານ ຄູນມີ ລັດຕະນະເຮືອງສີ",
-      role: "ບັນຊີ",
-      photo: "/aboutus/company/lapnet_employee_image/finance/2.png",
+      name: "—",
+      role: "—",
+      photo: "",
     },
     {
       id: 3,
-      name: "ທ່ານ ນາງ ປາເອ້ຍເຮີ່ ຈົ່ງລື",
-      role: "ການເງິນວິເຄາະ",
-      photo: "/aboutus/company/lapnet_employee_image/finance/3.png",
+      name: "—",
+      role: "—",
+      photo: "",
     },
     {
       id: 4,
-      name: "ທ່ານ ນາງ ຄູນສະຫວັນ ລຳລະໄມ",
-      role: "ການເງິນທົ່ວໄປ",
-      photo: "/aboutus/company/lapnet_employee_image/finance/4.webp",
+      name: "—",
+      role: "—",
+      photo: "",
     },
-     
-
   ],
-];
+]);
+
+/** ✅ เก็บ objectURL รูปที่สร้างไว้ (กัน memory leak) */
+const createdObjectUrls = new Set();
 
 // initials fallback
 const getInitials = (name) => (name || "").trim().slice(0, 2) || "?";
 
+const unwrapEmployees = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  if (payload && Array.isArray(payload.result)) return payload.result;
+  if (payload && Array.isArray(payload.items)) return payload.items;
+  return [];
+};
+
+const getField = (obj, keys, fallback = "") => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return fallback;
+};
+
+const isProbablyBase64 = (s) => {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (t.startsWith("data:image/")) return false;
+  if (t.length < 50) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(t);
+};
+
+/**
+ * ✅ normalize รูปจาก API
+ * - data:image/...
+ * - base64 => data:image/png;base64,...
+ * - full url
+ * - /path หรือ path => prefix ด้วย origin
+ */
+const normalizeApiPhoto = (path) => {
+  if (!path || typeof path !== "string") return "";
+  const p = path.trim();
+  if (!p) return "";
+
+  if (p.startsWith("data:image/")) return p;
+  if (isProbablyBase64(p)) return `data:image/png;base64,${p}`;
+  if (/^https?:\/\//i.test(p)) return p;
+
+  if (p.startsWith("/")) return `${EMP_API_ORIGIN}${p}`;
+  return `${EMP_API_ORIGIN}/${p}`;
+};
+
+const getDepartmentFromEmp = (emp) => {
+  return getField(
+    emp,
+    ["department", "dept", "department_name", "dep", "Department", "DEPARTMENT"],
+    ""
+  );
+};
+
+/** ✅ เงื่อนไข: department = Finance & Accounting */
+const isFinanceAccountingDept = (emp) => {
+  const d = (getDepartmentFromEmp(emp) || "").trim().toLowerCase();
+  if (!d) return false;
+
+  // รองรับหลายคำ/การสะกด เพื่อให้ match ง่ายขึ้น
+  const needles = [
+    "finance & accounting",
+    "finance and accounting",
+    "finance",
+    "accounting",
+    "ບັນຊີ",
+    "ການເງິນ",
+  ];
+  return needles.some((n) => d.includes(n.toLowerCase()));
+};
+
+/** ✅ role ใช้จาก API = role (fallback เผื่อไม่มี field) */
+const getRoleFromEmp = (emp) => {
+  return getField(emp, ["role", "position", "title", "emp_position", "employee_position"], "");
+};
+
+const getNameFromEmp = (emp) => {
+  return getField(emp, ["full_name", "name", "emp_name", "employee_name", "fullname"], "");
+};
+
+/** ✅ รูป: imageprofile เป็นหลัก */
+const getRawPhotoFromEmp = (emp) => {
+  return getField(
+    emp,
+    [
+      "imageprofile",
+      "imageProfile",
+      "image_profile",
+      "profileImage",
+      "profile_image",
+      "photo",
+      "photo_url",
+      "avatar",
+      "image",
+      "img",
+      "picture",
+    ],
+    ""
+  );
+};
+
+const fetchImageAsObjectUrl = async (url) => {
+  if (!url) return "";
+  if (url.startsWith("data:image/")) return url;
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      // credentials: "include",
+    });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    createdObjectUrls.add(objUrl);
+    return objUrl;
+  } catch {
+    return "";
+  }
+};
+
+const findPersonById = (id) => {
+  for (const row of rows.value) {
+    for (const p of row) {
+      if (p.id === id) return p;
+    }
+  }
+  return null;
+};
+
+const lower = (s) => (s || "").toLowerCase();
+
+const pickByRole = (pool, predicate) => {
+  const idx = pool.findIndex((emp) => predicate(getRoleFromEmp(emp)));
+  if (idx >= 0) return pool.splice(idx, 1)[0];
+  return null;
+};
+
+/**
+ * ✅ เติม 4 slot (1..4) แบบไม่เปลี่ยนโครงสร้าง
+ * - slot1: หัวหน้า (head)
+ * - slot2..4: ที่เหลือ (พยายามจับ keyword ก่อน แล้วค่อยหยิบตามลำดับ)
+ */
+const fillFinanceRowsFromApi = async (financeEmps) => {
+  const pool = [...financeEmps];
+
+  // slot1: Head
+  const emp1 =
+    pickByRole(pool, (r) => lower(r).includes("ຫົວໜ້າ")) ||
+    pickByRole(pool, (r) => lower(r).includes("head")) ||
+    pool.shift() ||
+    null;
+
+  // slot2: Accounting
+  const emp2 =
+    pickByRole(pool, (r) => lower(r).includes("account")) ||
+    pickByRole(pool, (r) => lower(r).includes("ບັນຊີ")) ||
+    pool.shift() ||
+    null;
+
+  // slot3: Finance Analyst
+  const emp3 =
+    pickByRole(pool, (r) => lower(r).includes("analysis")) ||
+    pickByRole(pool, (r) => lower(r).includes("analyst")) ||
+    pickByRole(pool, (r) => lower(r).includes("ວິເຄາະ")) ||
+    pool.shift() ||
+    null;
+
+  // slot4: General Finance
+  const emp4 =
+    pickByRole(pool, (r) => lower(r).includes("general")) ||
+    pickByRole(pool, (r) => lower(r).includes("ທົ່ວໄປ")) ||
+    pool.shift() ||
+    null;
+
+  const slotMap = [
+    [1, emp1],
+    [2, emp2],
+    [3, emp3],
+    [4, emp4],
+  ];
+
+  await Promise.all(
+    slotMap.map(async ([slotId, emp]) => {
+      const person = findPersonById(slotId);
+      if (!person) return;
+
+      if (!emp) {
+        person.name = "—";
+        person.role = "—";
+        person.photo = "";
+        return;
+      }
+
+      person.name = getNameFromEmp(emp) || "—";
+      person.role = getRoleFromEmp(emp) || "—";
+
+      const rawPhoto = getRawPhotoFromEmp(emp);
+      const normalized = normalizeApiPhoto(rawPhoto);
+
+      if (!normalized) {
+        person.photo = "";
+        return;
+      }
+
+      if (normalized.startsWith("data:image/")) {
+        person.photo = normalized;
+        return;
+      }
+
+      const objUrl = await fetchImageAsObjectUrl(normalized);
+      person.photo = objUrl || normalized;
+    })
+  );
+};
+
 let gsapCtx;
 
-onMounted(() => {
+onMounted(async () => {
+  // 1) fetch API + filter department=Finance & Accounting + เติมลง rows (โครงสร้างเดิม)
+  try {
+    const res = await fetch(EMP_API_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    const all = unwrapEmployees(json);
+    const financeEmps = (all || []).filter(isFinanceAccountingDept);
+
+    await fillFinanceRowsFromApi(financeEmps);
+  } catch (e) {
+    // ถ้า API fail: คงไว้เป็น "—" ไม่ให้หน้าแตก
+  }
+
+  // 2) ให้ DOM อัปเดตก่อน แล้วค่อย animate (GSAP เดิม)
+  await nextTick();
+
   gsapCtx = gsap.context(() => {
     const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
@@ -176,6 +414,14 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (gsapCtx) gsapCtx.revert();
+
+  // ✅ revoke objectURL กัน memory leak
+  for (const u of createdObjectUrls) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {}
+  }
+  createdObjectUrls.clear();
 });
 </script>
 

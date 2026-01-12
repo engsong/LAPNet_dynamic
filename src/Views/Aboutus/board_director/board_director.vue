@@ -137,7 +137,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, nextTick, computed } from "vue";
+import { onMounted, onBeforeUnmount, nextTick, computed, ref } from "vue";
 import { gsap } from "gsap";
 import main_navbar from "../../../components/miannavbar/main_navbar.vue";
 import bod_navbar from "../companystructure/navbarcompany/bod_navbar.vue";
@@ -152,114 +152,220 @@ onMounted(() => {
 });
 
 /* =========================
-   DATA (เพิ่ม bankName/bankLogo)
+   DATA + FETCH + ID MAPPING
+   ใช้ข้อมูลจาก API: banklogo, bankname, profile, name, committee (โชว์ใน member.role)
    ========================= */
-const layout = [
-  [
-    null,
-    {
-      type: "member",
-      name: "ທ່ານ ມະໂນລິດ ຊຸມພົນພັກດີ",
-      role: "ປະທານສະພາບໍລິຫານ",
-      roleTag: "president",
-      image: "/board-director-profile/BOL.webp",
-      bankName: "ທະນາຄານແຫ່ງ ສປປ ລາວ",
-      bankLogo: "/logoallmember/circle_scale/BOL.png",
-    },
-    null,
-    null,
-  ],
-  [
-    null,
-    {
-      type: "member",
-      name: "ທ່ານ ນັນທະລາດ ແກ້ວປະເສີດ",
-      role: "ຮອງປະທານສະພາບໍລິຫານ",
-      roleTag: "vp",
-      image: "/board-director-profile/allbcel.png",
-      bankName: "ທະນາຄານ ການຄ້າຕ່າງປະເທດລາວ ມະຫາຊົນ",
-      bankLogo: "/logoallmember/circle_scale/BCEL.png",
-    },
-    null,
-    null,
-  ],
-  [
-    {
-      type: "member",
-      name: "ທ່ານ ນາງ CHU XUEMEI",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/upi.webp",
-      bankName: "ບໍລິສັດ ຢູນຽນເພ ສາກົນ ຈຳກັດ",
-      bankLogo: "/logoallmember/circle_scale/UPI.png",
-    },
-    {
-      type: "member",
-      name: "ທ່ານ ສີສະອາດ ນຶມອາສາ",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/apbcircle.png",
-      bankName: "ທະນາຄານ ສົ່ງເສີມກະສິກຳ ຈຳກັດ",
-      bankLogo: "/logoallmember/circle_scale/APBB.PNG",
-    },
-    null,
-    {
-      type: "member",
-      name: "ທ່ານ ສອນຕາວັນ ໄກສອນເສນາ",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/ldb.webp",
-      bankName: "ທະນາຄານ ພັດທະນາລາວ ຈຳກັດ",
-      bankLogo: "/logoallmember/circle_scale/LDB.PNG",
-    },
-  ],
-  [
-    {
-      type: "member",
-      name: "ທ່ານ ວຽງວິໄລ ແສງຄຳຢອງ",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/lvb.png",
-      bankName: "ທະນາຄານ ຮ່ວມທຸລະກິດລາວ-ຫວຽດ",
-      bankLogo: "/logoallmember/circle_scale/lvb.PNG",
-    },
-    {
-      type: "member",
-      name: "ທ່ານ ຈັນຊະນະ ສິງຫາວົງ",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/alljdb.png",
-      bankName: "ທະນາຄານ ຮ່ວມພັດທະນາ ມະຫາຊົນ",
-      bankLogo: "/logoallmember/circle_scale/JDB.png",
-    },
-    {
-      type: "member",
-      name: "ທ່ານ ເອກະລາດ ລັດຕະນະຈານ",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/stb.webp",
-      bankName: "ທະນາຄານ ເອັສທີ ຈຳກັດ",
-      bankLogo: "/logoallmember/circle_scale/STB.png",
-    },
-    {
-      type: "member",
-      name: "ທ່ານ ຟີລິກ ດີຟຣານຊິສ",
-      role: "ສະມາຊິກສະພາບໍລິຫານ",
-      roleTag: "member",
-      image: "/board-director-profile/bic.png",
-      bankName: "ທະນາຄານ ບີໄອຊີ ລາວ ຈຳກັດ",
-      bankLogo: "/logoallmember/circle_scale/BIC.png",
-    },
-  ],
-];
+
+// ✅ mapping: local slot id -> api id
+const apiIdByLocalId = {
+  1: 27,
+  2: 26,
+  3: 25,
+  4: 24,
+  5: 23,
+  6: 19,
+  7: 22,
+  8: 21,
+  9: 20,
+};
+
+const API_URL = "http://localhost:3000/api/boarddirector";
+let fetchAbortController = null;
+
+/** ✅ สร้างโครง layout แบบเดิม (structure เดิม) แต่ข้อมูลว่าง รอ API เติม */
+function buildLayoutSkeleton() {
+  const emptyMember = (id, roleTag) => ({
+    id,
+    type: "member",
+    name: "",
+    role: "", // ✅ จะใส่ "committee" จาก API ลงตรงนี้
+    roleTag,
+    image: "", // profile -> จะ map มาใส่ตรงนี้
+    bankName: "",
+    bankLogo: "",
+  });
+
+  return [
+    [null, emptyMember(1, "president"), null, null],
+    [null, emptyMember(2, "vp"), null, null],
+    [emptyMember(3, "member"), emptyMember(4, "member"), null, emptyMember(5, "member")],
+    [
+      emptyMember(6, "member"),
+      emptyMember(7, "member"),
+      emptyMember(8, "member"),
+      emptyMember(9, "member"),
+    ],
+  ];
+}
+
+const layout = ref(buildLayoutSkeleton());
+
+function getApiOrigin() {
+  try {
+    return new URL(API_URL).origin;
+  } catch {
+    return "http://localhost:3000";
+  }
+}
+
+/** ✅ ถ้า api ส่ง path แบบ relative ให้แปลงเป็น url เต็ม */
+function resolveMediaUrl(path) {
+  if (!path) return "";
+  if (typeof path !== "string") return "";
+  if (/^https?:\/\//i.test(path)) return path;
+  if (/^data:/i.test(path)) return path;
+
+  const origin = getApiOrigin();
+  if (path.startsWith("/")) return `${origin}${path}`;
+  return `${origin}/${path}`;
+}
+
+function pickArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.result)) return payload.result;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+/** ✅ normalize ให้เข้ากับ style: banklogo, bankname, profile, name, committee -> role */
+function normalizeApiItem(item) {
+  const apiId =
+    item?.id ??
+    item?.boarddirector_id ??
+    item?.boardDirectorId ??
+    item?.director_id ??
+    item?.board_director_id ??
+    null;
+
+  const name =
+    item?.name ??
+    item?.fullname ??
+    item?.full_name ??
+    item?.member_name ??
+    "";
+
+  // ✅ committee จาก API -> ใส่ลง member.role เพื่อโชว์ใน <div class="member-role">{{ member.role }}</div>
+  const committee =
+    item?.committee ??
+    item?.committee_name ??
+    item?.committeeName ??
+    item?.committee_title ??
+    item?.committeeTitle ??
+    item?.committee_role ??
+    item?.committeeRole ??
+    "";
+
+  // (เผื่อ API บางชุดยังใช้ role/position/title)
+  const roleFallback =
+    item?.role ??
+    item?.position ??
+    item?.title ??
+    "";
+
+  const role = committee || roleFallback || "";
+
+  // ✅ profile -> slot.image (สำหรับ <img class="avatar-image" :src="slot.image" />)
+  const profile =
+    item?.profile ??
+    item?.profile_path ??
+    item?.profile_url ??
+    item?.profileImage ??
+    item?.profile_image ??
+    item?.avatar ??
+    item?.photo ??
+    item?.image ??
+    "";
+
+  const bankName =
+    item?.bankname ??
+    item?.bankName ??
+    item?.bank_name ??
+    item?.organization ??
+    item?.company ??
+    "";
+
+  const bankLogo =
+    item?.banklogo ??
+    item?.bankLogo ??
+    item?.bank_logo ??
+    item?.organization_logo ??
+    item?.company_logo ??
+    item?.logo ??
+    "";
+
+  return {
+    apiId: apiId != null ? Number(apiId) : null,
+    name,
+    role, // ✅ role = committee
+    image: resolveMediaUrl(profile),
+    bankName,
+    bankLogo: resolveMediaUrl(bankLogo),
+  };
+}
+
+async function loadBoardDirectorsByIdMapping() {
+  try {
+    if (fetchAbortController) fetchAbortController.abort();
+    fetchAbortController = new AbortController();
+
+    const res = await fetch(API_URL, { signal: fetchAbortController.signal });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+    const payload = await res.json();
+    const raw = pickArray(payload);
+    const normalized = raw.map(normalizeApiItem);
+
+    const byApiId = new Map();
+    normalized.forEach((x) => {
+      if (x.apiId !== null && x.apiId !== undefined) byApiId.set(Number(x.apiId), x);
+    });
+
+    // ✅ update each slot by mapping local id -> api id
+    layout.value.forEach((row) => {
+      row.forEach((slot, idx) => {
+        if (!slot || slot.type !== "member") return;
+
+        const apiId = apiIdByLocalId[slot.id];
+        if (!apiId) return;
+
+        const apiItem = byApiId.get(Number(apiId));
+        if (!apiItem) {
+          // ถ้าไม่มีข้อมูลใน API ให้ซ่อน cell (ไม่โชว์การ์ดเปล่า)
+          row[idx] = null;
+          return;
+        }
+
+        // keep slot.id + slot.roleTag (layout position), replace data from API
+        slot.name = apiItem.name || "";
+        slot.role = apiItem.role || ""; // ✅ committee จะมาอยู่ตรงนี้
+        slot.image = apiItem.image || ""; // ✅ profile -> image
+        slot.bankName = apiItem.bankName || "";
+        slot.bankLogo = apiItem.bankLogo || "";
+      });
+    });
+  } catch (err) {
+    console.warn("[boarddirector] fetch failed:", err);
+    // ถ้า fetch พัง: ซ่อนทั้งหมด (ไม่ใช้ default)
+    layout.value = buildLayoutSkeleton().map((row) =>
+      row.map((x) => (x && x.type === "member" ? null : x))
+    );
+  }
+}
+
+onMounted(() => {
+  loadBoardDirectorsByIdMapping();
+});
 
 const cleanLayout = computed(() =>
-  layout.map((row) => row.filter((slot) => slot && slot.type === "member"))
+  layout.value.map((row) => row.filter((slot) => slot && slot.type === "member"))
 );
 
 const mobileMembers = computed(() => {
   const all = [];
-  layout.forEach((row) => row.forEach((slot) => slot && slot.type === "member" && all.push(slot)));
+  layout.value.forEach((row) =>
+    row.forEach((slot) => slot && slot.type === "member" && all.push(slot))
+  );
 
   const presidentIndex = all.findIndex((m) => m.roleTag === "president");
   const vpIndex = all.findIndex((m) => m.roleTag === "vp");
@@ -350,6 +456,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  if (fetchAbortController) fetchAbortController.abort();
+
   sweepSet.forEach((tl) => tl.kill());
   sweepSet.clear();
   sweepMap.clear();
@@ -567,8 +675,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   font-size: 1.02rem; /* ✅ balance with 34px logo */
   font-weight: 700;
- 
-  
+
   letter-spacing: 0.01em;
   color: rgba(226, 232, 240, 0.94);
   overflow: hidden;

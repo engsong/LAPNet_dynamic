@@ -33,22 +33,18 @@
           <div class="person-card member-card">
             <div class="avatar-wrapper">
               <div class="avatar">
-                <img src="/board-director-profile/upi.webp" alt="" />
+                <img :src="avatarSrc(slot1)" alt="" />
               </div>
             </div>
 
             <div class="person-info">
               <div class="bank-meta">
-                <img
-                  class="bank-logo"
-                  src="/logoallmember/circle_scale/UPI.png"
-                  alt="UPI"
-                />
-                <span class="bank-name">ບໍລິສັດ ຢູນຽນເພ ສາກົນ ຈຳກັດ</span>
+                <img class="bank-logo" :src="bankLogoSrc(slot1)" alt="UPI" />
+                <span class="bank-name">{{ bankName(slot1) }}</span>
               </div>
 
-              <div class="name">ທ່ານ ນາງ CHU XUEMEI</div>
-              <div class="position">ຫົວໜ້າຄະນະກຳມະການກວດກາ</div>
+              <div class="name">{{ personName(slot1) }}</div>
+              <div class="position">{{ personRole(slot1) }}</div>
             </div>
           </div>
         </div>
@@ -63,22 +59,18 @@
           <div class="person-card member-card">
             <div class="avatar-wrapper">
               <div class="avatar">
-                <img src="/board-director-profile/apbcircle.png" alt="" />
+                <img :src="avatarSrc(slot2)" alt="" />
               </div>
             </div>
 
             <div class="person-info">
               <div class="bank-meta">
-                <img
-                  class="bank-logo"
-                  src="/logoallmember/circle_scale/APBB.PNG"
-                  alt="APB"
-                />
-                <span class="bank-name">ທະນາຄານ ສົ່ງເສີມກະສິກຳ ຈຳກັດ</span>
+                <img class="bank-logo" :src="bankLogoSrc(slot2)" alt="APB" />
+                <span class="bank-name">{{ bankName(slot2) }}</span>
               </div>
 
-              <div class="name">ທ່ານ ສີສະອາດ ນຶມອາສາ</div>
-              <div class="position">ຮອງຫົວໜ້າຄະນະກຳມະການກວດກາ</div>
+              <div class="name">{{ personName(slot2) }}</div>
+              <div class="position">{{ personRole(slot2) }}</div>
             </div>
           </div>
         </div>
@@ -89,22 +81,18 @@
           <div class="person-card member-card">
             <div class="avatar-wrapper">
               <div class="avatar">
-                <img src="/board-director-profile/ldb.webp" alt="" />
+                <img :src="avatarSrc(slot3)" alt="" />
               </div>
             </div>
 
             <div class="person-info">
               <div class="bank-meta">
-                <img
-                  class="bank-logo"
-                  src="/logoallmember/circle_scale/LDB.PNG"
-                  alt="LDB"
-                />
-                <span class="bank-name">ທະນາຄານ ພັດທະນາລາວ ຈຳກັດ</span>
+                <img class="bank-logo" :src="bankLogoSrc(slot3)" alt="LDB" />
+                <span class="bank-name">{{ bankName(slot3) }}</span>
               </div>
 
-              <div class="name">ທ່ານ ສອນຕາວັນ ໄກສອນເສນາ</div>
-              <div class="position">ຮອງຫົວໜ້າຄະນະກຳມະການກວດກາ</div>
+              <div class="name">{{ personName(slot3) }}</div>
+              <div class="position">{{ personRole(slot3) }}</div>
             </div>
           </div>
         </div>
@@ -127,52 +115,304 @@ import main_navbar from '../../../components/miannavbar/main_navbar.vue'
 import secondfooter from '../../../components/footer/mainfooter/secondfooter.vue'
 
 const orgLayout = ref(null)
-let ctx = null
 
 const PAN_DISTANCE = 90
+
+// ✅ API
+const API_URL = 'http://localhost:3000/api/boarddirector'
+const BASE_URL = 'http://localhost:3000'
+
+// ✅ mapping row -> api id
+const ROW1_API_ID = 25
+const ROW2_API_ID = 24
+const ROW3_API_ID = 23
+
+const loading = ref(false)
+const error = ref('')
+const abortCtrl = ref(null)
+
+// ✅ slots (no default)
+const slot1 = ref(null) // id = 25
+const slot2 = ref(null) // id = 24
+const slot3 = ref(null) // id = 23
+
+// ✅ GSAP timelines (fix flicker by NOT reverting styles on unmount)
+let enterTl = null
+let leaveTween = null
+
+function norm(v) {
+  return String(v ?? '').trim()
+}
+function pick(obj, ...keys) {
+  for (const k of keys) {
+    const v = obj?.[k]
+    if (v !== null && v !== undefined && String(v).trim() !== '') return v
+  }
+  return ''
+}
+function resolveImageUrl(v, baseOverride) {
+  if (!v) return ''
+  let s = String(v).trim()
+  if (!s) return ''
+
+  if (
+    s.startsWith('http://') ||
+    s.startsWith('https://') ||
+    s.startsWith('data:') ||
+    s.startsWith('blob:')
+  ) {
+    return s
+  }
+
+  const base = String(baseOverride || BASE_URL || '').replace(/\/$/, '')
+  if (!base) return s
+
+  if (s.startsWith('/')) return base + s
+  s = s.replace(/^\.\//, '')
+  return base + '/' + s
+}
+
+function apiItemId(x) {
+  const raw = pick(
+    x,
+    'id',
+    'boarddirector_id',
+    'boardDirectorId',
+    'director_id',
+    'board_director_id'
+  )
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+// ✅ fields from API only: banklogo, bankname, profile, name, role
+function personName(x) {
+  return norm(
+    pick(
+      x,
+      'name',
+      'full_name',
+      'director_name',
+      'directorName',
+      'emp_name',
+      'empName'
+    )
+  )
+}
+
+function personRole(x) {
+  return norm(pick(x, 'role', 'position', 'title', 'director_role', 'directorRole'))
+}
+
+function bankName(x) {
+  const nested =
+    pick(x?.bank, 'bankname', 'bankName', 'bank_name', 'name') ||
+    pick(x?.bankInfo, 'bankname', 'bankName', 'bank_name', 'name') ||
+    ''
+  return norm(
+    nested ||
+      pick(
+        x,
+        'bankname',
+        'bankName',
+        'bank_name',
+        'member_bank',
+        'memberBank',
+        'company',
+        'company_name'
+      )
+  )
+}
+
+function avatarSrc(x) {
+  const raw = pick(
+    x,
+    // profile main
+    'profile',
+    'profile_img',
+    'profileImg',
+    'imageprofile',
+    'imageProfile',
+    // fallback keys (still from API only)
+    'image',
+    'avatar',
+    'photo',
+    'img',
+    'picture',
+    'director_image',
+    'directorImage'
+  )
+  return resolveImageUrl(raw) || ''
+}
+
+function bankLogoSrc(x) {
+  const nested =
+    pick(
+      x?.bank,
+      'banklogo',
+      'bankLogo',
+      'bank_logo',
+      'logo',
+      'logo_path',
+      'logoPath'
+    ) ||
+    pick(
+      x?.bankInfo,
+      'banklogo',
+      'bankLogo',
+      'bank_logo',
+      'logo',
+      'logo_path',
+      'logoPath'
+    ) ||
+    ''
+
+  const raw =
+    nested ||
+    pick(
+      x,
+      // banklogo main
+      'banklogo',
+      'bankLogo',
+      'bank_logo',
+      // fallback keys (still from API only)
+      'logo',
+      'logobank',
+      'logo_bank',
+      'logo_path',
+      'logoPath',
+      'bank_logo_path',
+      'bankLogoUrl',
+      'bank_logo_url'
+    )
+
+  return resolveImageUrl(raw) || ''
+}
+
+async function fetchBoardDirectorByRowIds() {
+  try {
+    error.value = ''
+    loading.value = true
+
+    if (abortCtrl.value) abortCtrl.value.abort()
+    abortCtrl.value = new AbortController()
+
+    const res = await fetch(API_URL, { signal: abortCtrl.value.signal })
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status}${txt ? ` • ${txt.slice(0, 140)}` : ''}`)
+    }
+
+    const data = await res.json()
+
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.boarddirectors)
+            ? data.boarddirectors
+            : Array.isArray(data?.boarddirector)
+              ? data.boarddirector
+              : Array.isArray(data?.directors)
+                ? data.directors
+                : []
+
+    const wanted = new Set([ROW1_API_ID, ROW2_API_ID, ROW3_API_ID])
+    const byId = new Map()
+
+    ;(list || []).forEach((x) => {
+      const id = apiItemId(x)
+      if (id != null && wanted.has(id)) byId.set(id, x)
+    })
+
+    // ✅ strict mapping: row1=25, row2=24, row3=23
+    slot1.value = byId.get(ROW1_API_ID) || null
+    slot2.value = byId.get(ROW2_API_ID) || null
+    slot3.value = byId.get(ROW3_API_ID) || null
+  } catch (e) {
+    if (e?.name === 'AbortError') return
+    error.value = 'Failed to load (check API / CORS)'
+    console.error('[boarddirector fetch]', e)
+    slot1.value = null
+    slot2.value = null
+    slot3.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+function playEnterAnimation() {
+  if (!orgLayout.value) return
+
+  const root = orgLayout.value
+  const shell = root.querySelector('.org-shell')
+  const header = root.querySelector('.org-header')
+  const cards = Array.from(root.querySelectorAll('.person-card'))
+
+  // stop any previous animations
+  enterTl?.kill?.()
+  leaveTween?.kill?.()
+  gsap.killTweensOf([root, shell, header, ...cards])
+
+  // ✅ IMPORTANT: set start state BEFORE playing (prevents flicker)
+  gsap.set(root, { opacity: 0, x: PAN_DISTANCE, force3D: true })
+  gsap.set(shell, { opacity: 0, y: 28, scale: 0.985, force3D: true })
+  gsap.set(header, { opacity: 0, y: 16, force3D: true })
+  gsap.set(cards, { opacity: 0, y: 16, force3D: true })
+
+  enterTl = gsap.timeline({
+    defaults: { ease: 'power3.out', duration: 0.7 },
+  })
+
+  enterTl
+    .to(root, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' })
+    .to(shell, { opacity: 1, y: 0, scale: 1 }, '-=0.25')
+    .to(header, { opacity: 1, y: 0, duration: 0.55 }, '-=0.45')
+    .to(cards, { opacity: 1, y: 0, stagger: 0.08, duration: 0.6 }, '-=0.35')
+}
 
 onMounted(async () => {
   await nextTick()
 
-  ctx = gsap.context(() => {
-    const cards = gsap.utils.toArray('.person-card')
+  // ✅ hide immediately so it won't "flash" visible then GSAP set to from-state
+  if (orgLayout.value) {
+    gsap.set(orgLayout.value, { opacity: 0, x: PAN_DISTANCE, force3D: true })
+  }
 
-    const tl = gsap.timeline({
-      defaults: { ease: 'power3.out', duration: 0.8 },
-    })
+  // fetch first (local API usually fast), then animate in
+  await fetchBoardDirectorByRowIds()
+  await nextTick()
 
-    // ✅ Pan เฉพาะ org-layout (เข้าจากขวา)
-    tl.fromTo(
-      orgLayout.value,
-      { opacity: 0, x: PAN_DISTANCE },
-      { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' }
-    )
-      .from('.org-shell', { opacity: 0, y: 40, scale: 0.97 }, '-=0.25')
-      .from('.org-header', { opacity: 0, y: 20 }, '-=0.45')
-      .from(
-        cards,
-        { opacity: 0, y: 24, filter: 'blur(6px)', stagger: 0.08 },
-        '-=0.35'
-      )
-  }, orgLayout.value)
+  playEnterAnimation()
 })
 
-// ✅ ออกเพจ: pan-out เฉพาะ org-layout (ออกซ้ายก่อนเปลี่ยน route)
 onBeforeRouteLeave((to, from, next) => {
   if (!orgLayout.value) return next()
 
+  // stop enter anim to avoid conflicts
+  enterTl?.kill?.()
+  leaveTween?.kill?.()
   gsap.killTweensOf(orgLayout.value)
-  gsap.to(orgLayout.value, {
+
+  // ✅ leave animation (no ctx.revert => no blink)
+  leaveTween = gsap.to(orgLayout.value, {
     x: -PAN_DISTANCE,
     opacity: 0,
-    duration: 0.45,
+    duration: 0.42,
     ease: 'power2.inOut',
+    overwrite: 'auto',
     onComplete: next,
+    onInterrupt: next,
   })
 })
 
 onUnmounted(() => {
-  if (ctx) ctx.revert()
+  // ✅ kill only (do NOT revert styles -> prevents flashing/blink)
+  enterTl?.kill?.()
+  leaveTween?.kill?.()
+  abortCtrl.value?.abort?.()
 })
 </script>
 
@@ -206,7 +446,6 @@ onUnmounted(() => {
   /* ✅ improve pan performance */
   will-change: transform, opacity;
 
- 
   --chip-bg: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.9),
@@ -495,7 +734,7 @@ onUnmounted(() => {
   .org-shell {
     padding-inline: 1.25rem;
     padding-block: 1.7rem 2.8rem;
-    
+
     border-radius: 2rem;
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.16),
       0 0 0 1px rgba(148, 163, 184, 0.18);

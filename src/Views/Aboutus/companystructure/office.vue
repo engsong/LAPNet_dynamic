@@ -41,11 +41,7 @@
           :key="rowIndex"
           :class="['org-row', `org-row--${rowIndex}`]"
         >
-          <article
-            v-for="person in row"
-            :key="person.id"
-            class="org-card"
-          >
+          <article v-for="person in row" :key="person.id" class="org-card">
             <!-- AVATAR -->
             <div class="org-avatar-wrapper">
               <div class="org-avatar-ring">
@@ -82,132 +78,381 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { gsap } from 'gsap'
-import main_navbar from '../../../components/miannavbar/main_navbar.vue'
-import cpn_navbar from './navbarcompany/cpn_navbar.vue'
-import secondfooter from '../../../components/footer/mainfooter/secondfooter.vue'
-const root = ref(null)
+import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { gsap } from "gsap";
+import main_navbar from "../../../components/miannavbar/main_navbar.vue";
+import cpn_navbar from "./navbarcompany/cpn_navbar.vue";
+import secondfooter from "../../../components/footer/mainfooter/secondfooter.vue";
 
-const rows = [
+const root = ref(null);
+
+/** ✅ API */
+const EMP_API_ORIGIN = "http://localhost:3000";
+const EMP_API_URL = "http://localhost:3000/api/emp_lapnet";
+
+/**
+ * ✅ (โครงสร้างเดิม) 4 แถว / 6 ใบ ห้ามเปลี่ยนโครงสร้าง
+ * - แค่เติม name/role/photo จาก API (department = Administration)
+ * - role ใช้จาก API field "role"
+ */
+const rows = ref([
   [
     {
       id: 1,
-      name: 'ທ່ານ ສັນຕິພາບ ປານມະໄລທອງ',
-      role: 'ຫົວໜ້າພະແນກຫ້ອງການ',
-        photo: '/aboutus/company/lapnet_employee_image/aministration/1.png'      
-    }
+      name: "—",
+      role: "—",
+      photo: "",
+    },
   ],
   [
     {
       id: 2,
-      name: 'ທ່ານ ນາງ ອາລີພອນ ເພັງສະຫວັດດີ',
-      role: 'ຮອງຫົວໜ້າພະແນກຫ້ອງການ',
-           photo: '/aboutus/company/lapnet_employee_image/aministration/2.png'     
-    }
+      name: "—",
+      role: "—",
+      photo: "",
+    },
   ],
   [
     {
       id: 3,
-      name: 'ທ່ານ ສຸກທະວີ ນຳມະນີວົງ',
-      role: 'ບໍລິຫານ–ສັງລວມ',
-  photo: '/aboutus/company/lapnet_employee_image/aministration/3.png'  
+      name: "—",
+      role: "—",
+      photo: "",
     },
     {
       id: 4,
-      name: 'ທ່ານ ນາງ ໂພເງິນ ສີສະຫວັດ',
-      role: 'ນິຕິກຳ',
-      photo: '/aboutus/company/lapnet_employee_image/aministration/4.png'  
+      name: "—",
+      role: "—",
+      photo: "",
     },
     {
       id: 5,
-      name: 'ທ່ານ ນາງ ປານັດດາ ດວງທອງຄຳ',
-      role: 'ເລຂານຸການ',
-       photo: '/aboutus/company/lapnet_employee_image/aministration/5.png'  
-    }
+      name: "—",
+      role: "—",
+      photo: "",
+    },
   ],
   [
     {
       id: 6,
-      name: 'ທ່ານ ນາງ ດາລີນີ ນວນສະຫວັນ',
-      role: 'ບຸກຄະລາກອນ',
-        photo: '/aboutus/company/lapnet_employee_image/aministration/6.webp'  
+      name: "—",
+      role: "—",
+      photo: "",
+    },
+  ],
+]);
+
+/** ✅ เก็บ objectURL รูปที่สร้างไว้ (กัน memory leak) */
+const createdObjectUrls = new Set();
+
+// initials fallback (2 ตัวแรก)
+const getInitials = (name) => (name || "").trim().slice(0, 2) || "?";
+
+const unwrapEmployees = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  if (payload && Array.isArray(payload.result)) return payload.result;
+  if (payload && Array.isArray(payload.items)) return payload.items;
+  return [];
+};
+
+const getField = (obj, keys, fallback = "") => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return fallback;
+};
+
+const isProbablyBase64 = (s) => {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (t.startsWith("data:image/")) return false;
+  if (t.length < 50) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(t);
+};
+
+/**
+ * ✅ normalize รูปจาก API
+ * - data:image/...
+ * - base64 => data:image/png;base64,...
+ * - full url
+ * - /path หรือ path => prefix ด้วย origin
+ */
+const normalizeApiPhoto = (path) => {
+  if (!path || typeof path !== "string") return "";
+  const p = path.trim();
+  if (!p) return "";
+
+  if (p.startsWith("data:image/")) return p;
+  if (isProbablyBase64(p)) return `data:image/png;base64,${p}`;
+  if (/^https?:\/\//i.test(p)) return p;
+
+  if (p.startsWith("/")) return `${EMP_API_ORIGIN}${p}`;
+  return `${EMP_API_ORIGIN}/${p}`;
+};
+
+const getDepartmentFromEmp = (emp) => {
+  return getField(
+    emp,
+    ["department", "dept", "department_name", "dep", "Department", "DEPARTMENT"],
+    ""
+  );
+};
+
+/** ✅ เงื่อนไข: department = Administration */
+const isAdministrationDept = (emp) => {
+  const d = (getDepartmentFromEmp(emp) || "").trim().toLowerCase();
+  if (!d) return false;
+
+  // รองรับพิมพ์ผิด/คำใกล้เคียงด้วย (เพื่อไม่ให้หลุด)
+  const needles = ["administration", "admin", "aministration", "office", "ຫ້ອງການ"];
+  return needles.some((n) => d.includes(n.toLowerCase()));
+};
+
+/** ✅ role ใช้จาก API = role (fallback เผื่อไม่มี field) */
+const getRoleFromEmp = (emp) => {
+  return getField(emp, ["role", "position", "title", "emp_position", "employee_position"], "");
+};
+
+const getNameFromEmp = (emp) => {
+  return getField(emp, ["full_name", "name", "emp_name", "employee_name", "fullname"], "");
+};
+
+/** ✅ รูป: imageprofile เป็นหลัก */
+const getRawPhotoFromEmp = (emp) => {
+  return getField(
+    emp,
+    [
+      "imageprofile",
+      "imageProfile",
+      "image_profile",
+      "profileImage",
+      "profile_image",
+      "photo",
+      "photo_url",
+      "avatar",
+      "image",
+      "img",
+      "picture",
+    ],
+    ""
+  );
+};
+
+const fetchImageAsObjectUrl = async (url) => {
+  if (!url) return "";
+  if (url.startsWith("data:image/")) return url;
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      // credentials: "include",
+    });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    createdObjectUrls.add(objUrl);
+    return objUrl;
+  } catch {
+    return "";
+  }
+};
+
+const findPersonById = (id) => {
+  for (const row of rows.value) {
+    for (const p of row) {
+      if (p.id === id) return p;
     }
-  ]
-]
+  }
+  return null;
+};
 
-const getInitials = (name) => (name || '').trim().slice(0, 2) || '?'
+/**
+ * ✅ เลือกพนักงาน Admin ไปใส่ใน "slot" 1..6 โดย "ไม่เปลี่ยนโครงสร้าง"
+ * - พยายามจับคู่ตาม role keyword (Lao/EN) ก่อน
+ * - ถ้าไม่เจอ จะไล่หยิบจาก list ที่เหลือแทน
+ */
+const pickByRole = (pool, predicate) => {
+  const idx = pool.findIndex((emp) => predicate(getRoleFromEmp(emp)));
+  if (idx >= 0) return pool.splice(idx, 1)[0];
+  return null;
+};
 
-let gsapCtx
+const lower = (s) => (s || "").toLowerCase();
 
-onMounted(() => {
+const fillAdministrationRowsFromApi = async (adminEmps) => {
+  const pool = [...adminEmps];
+
+  // slot1: Head (หัวหน้า)
+  const emp1 =
+    pickByRole(pool, (r) => lower(r).includes("ຫົວໜ້າ")) ||
+    pickByRole(pool, (r) => lower(r).includes("head")) ||
+    pool.shift() ||
+    null;
+
+  // slot2: Deputy (รองหัวหน้า)
+  const emp2 =
+    pickByRole(pool, (r) => lower(r).includes("ຮອງ")) ||
+    pickByRole(pool, (r) => lower(r).includes("deputy")) ||
+    pickByRole(pool, (r) => lower(r).includes("vice")) ||
+    pool.shift() ||
+    null;
+
+  // slot3: Admin/General
+  const emp3 =
+    pickByRole(pool, (r) => lower(r).includes("ບໍລິຫານ")) ||
+    pickByRole(pool, (r) => lower(r).includes("administration")) ||
+    pickByRole(pool, (r) => lower(r).includes("admin")) ||
+    pool.shift() ||
+    null;
+
+  // slot4: Legal
+  const emp4 =
+    pickByRole(pool, (r) => lower(r).includes("ນິຕິ")) ||
+    pickByRole(pool, (r) => lower(r).includes("legal")) ||
+    pool.shift() ||
+    null;
+
+  // slot5: Secretary
+  const emp5 =
+    pickByRole(pool, (r) => lower(r).includes("ເລຂາ")) ||
+    pickByRole(pool, (r) => lower(r).includes("secretary")) ||
+    pool.shift() ||
+    null;
+
+  // slot6: HR/Personnel
+  const emp6 =
+    pickByRole(pool, (r) => lower(r).includes("ບຸກຄະລາ")) ||
+    pickByRole(pool, (r) => lower(r).includes("hr")) ||
+    pickByRole(pool, (r) => lower(r).includes("human")) ||
+    pickByRole(pool, (r) => lower(r).includes("personnel")) ||
+    pool.shift() ||
+    null;
+
+  const slotMap = [
+    [1, emp1],
+    [2, emp2],
+    [3, emp3],
+    [4, emp4],
+    [5, emp5],
+    [6, emp6],
+  ];
+
+  // preload + set fields
+  await Promise.all(
+    slotMap.map(async ([slotId, emp]) => {
+      const person = findPersonById(slotId);
+      if (!person) return;
+
+      if (!emp) {
+        person.name = "—";
+        person.role = "—";
+        person.photo = "";
+        return;
+      }
+
+      person.name = getNameFromEmp(emp) || "—";
+      person.role = getRoleFromEmp(emp) || "—";
+
+      const rawPhoto = getRawPhotoFromEmp(emp);
+      const normalized = normalizeApiPhoto(rawPhoto);
+
+      if (!normalized) {
+        person.photo = "";
+        return;
+      }
+
+      if (normalized.startsWith("data:image/")) {
+        person.photo = normalized;
+        return;
+      }
+
+      const objUrl = await fetchImageAsObjectUrl(normalized);
+      person.photo = objUrl || normalized;
+    })
+  );
+};
+
+let gsapCtx;
+
+onMounted(async () => {
+  // 1) fetch API + filter department=Administration + เติมลง rows (โครงสร้างเดิม)
+  try {
+    const res = await fetch(EMP_API_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    const all = unwrapEmployees(json);
+    const adminEmps = (all || []).filter(isAdministrationDept);
+
+    await fillAdministrationRowsFromApi(adminEmps);
+  } catch (e) {
+    // ถ้า API fail: คงไว้เป็น "—" ไม่ให้หน้าแตก
+  }
+
+  // 2) ให้ DOM อัปเดตก่อน แล้วค่อย animate (GSAP เดิม)
+  await nextTick();
+
   gsapCtx = gsap.context(() => {
     const tl = gsap.timeline({
-      defaults: { ease: 'power3.out' }
-    })
+      defaults: { ease: "power3.out" },
+    });
 
-    tl.from('.org-container', {
+    tl.from(".org-container", {
       opacity: 0,
       y: 48,
       scale: 0.97,
-      duration: 0.8
+      duration: 0.8,
     })
+      .from(".org-header-left", { x: -40, opacity: 0, duration: 0.6 }, "-=0.4")
+      .from(".org-header-right", { x: 40, opacity: 0, duration: 0.6 }, "-=0.5")
+      .from(".org-frame", { opacity: 0, y: 24, duration: 0.7 }, "-=0.25")
+      .from(".org-row", { opacity: 0, y: 40, duration: 0.7, stagger: 0.12 }, "-=0.2")
       .from(
-        '.org-header-left',
-        { x: -40, opacity: 0, duration: 0.6 },
-        '-=0.4'
-      )
-      .from(
-        '.org-header-right',
-        { x: 40, opacity: 0, duration: 0.6 },
-        '-=0.5'
-      )
-      .from(
-        '.org-frame',
-        { opacity: 0, y: 24, duration: 0.7 },
-        '-=0.25'
-      )
-      .from(
-        '.org-row',
-        { opacity: 0, y: 40, duration: 0.7, stagger: 0.12 },
-        '-=0.2'
-      )
-      .from(
-        '.org-card',
+        ".org-card",
         {
           opacity: 0,
           y: 30,
           rotateX: -14,
-          transformOrigin: '50% 100%',
+          transformOrigin: "50% 100%",
           duration: 0.8,
-          stagger: { each: 0.06, from: 'center' }
+          stagger: { each: 0.06, from: "center" },
         },
-        '-=0.6'
+        "-=0.6"
       )
       .from(
-        '.org-avatar-ring',
+        ".org-avatar-ring",
         {
           scale: 0.5,
           opacity: 0,
           duration: 0.55,
-          stagger: { each: 0.07, from: 'center' }
+          stagger: { each: 0.07, from: "center" },
         },
-        '-=0.55'
-      )
+        "-=0.55"
+      );
 
-    gsap.to('.org-card', {
-      boxShadow: '0 22px 48px rgba(15, 23, 42, 0.45)',
+    gsap.to(".org-card", {
+      boxShadow: "0 22px 48px rgba(15, 23, 42, 0.45)",
       duration: 3.2,
-      ease: 'sine.inOut',
+      ease: "sine.inOut",
       repeat: -1,
-      yoyo: true
-    })
-  }, root.value)
-})
+      yoyo: true,
+    });
+  }, root.value);
+});
 
 onBeforeUnmount(() => {
-  if (gsapCtx) gsapCtx.revert()
-})
+  if (gsapCtx) gsapCtx.revert();
+
+  // ✅ revoke objectURL กัน memory leak
+  for (const u of createdObjectUrls) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {}
+  }
+  createdObjectUrls.clear();
+});
 </script>
 
 <style scoped>
@@ -302,7 +547,6 @@ onBeforeUnmount(() => {
   perspective: 1200px;
 }
 
-
 .org-row {
   display: flex;
   justify-content: center;
@@ -321,8 +565,7 @@ onBeforeUnmount(() => {
   text-align: center;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.42);
   transform-style: preserve-3d;
-  transition:
-    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -353,7 +596,7 @@ onBeforeUnmount(() => {
   border-radius: inherit;
   background: #020617;
   display: flex;
-  
+
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -395,10 +638,10 @@ onBeforeUnmount(() => {
   .org-row {
     flex-wrap: wrap;
   }
-   .org-row {
+  .org-row {
     flex-direction: column;
     align-items: center;
-    gap: 120px;       
+    gap: 120px;
     margin-bottom: 76px;
   }
 }
@@ -410,10 +653,10 @@ onBeforeUnmount(() => {
     gap: 16px;
     padding: 22px 24px;
   }
- .org-header-en{
+  .org-header-en {
     font-size: 13px;
   }
-  .org-logo-circle{
+  .org-logo-circle {
     width: 60px;
     height: 60px;
   }
@@ -427,11 +670,10 @@ onBeforeUnmount(() => {
     padding: 48px 16px 34px;
   }
 
-
   .org-row {
     flex-direction: column;
     align-items: center;
-    gap: 120px;       
+    gap: 120px;
     margin-bottom: 76px;
   }
 }

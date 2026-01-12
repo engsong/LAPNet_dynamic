@@ -45,8 +45,8 @@
             :key="person.id"
             class="org-card"
             :class="[
-              { 'org-card--head': rowIndex >= 2 }, // Heads zone (rowIndex>=2) ทั้ง desktop+mobile
-              { 'org-card--row4': !!person.isRow4 }, // ✅ ใช้ flag ของ person (สำคัญตอน mobile ที่ merge row)
+              { 'org-card--head': rowIndex >= 2 },
+              { 'org-card--row4': !!person.isRow4 },
             ]"
           >
             <!-- AVATAR -->
@@ -56,7 +56,7 @@
                   <img
                     v-if="person.photo"
                     :src="person.photo"
-                    :alt="person.name"
+                    :alt="person.name || 'avatar'"
                     class="org-avatar-img"
                   />
                   <span v-else class="org-avatar-placeholder">
@@ -81,7 +81,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { gsap } from "gsap";
 import main_navbar from "../../../components/miannavbar/main_navbar.vue";
 import cpn_navbar from "./navbarcompany/cpn_navbar.vue";
@@ -89,76 +89,238 @@ import secondfooter from "../../../components/footer/mainfooter/secondfooter.vue
 
 const root = ref(null);
 
+/** ✅ API */
+const EMP_API_ORIGIN = "http://localhost:3000";
+const EMP_API_URL = "http://localhost:3000/api/emp_lapnet";
+
+const apiEmployees = ref([]);
+const loading = ref(true);
+const apiError = ref(null);
+
 /**
- * ✅ baseRows = โครงสร้างจริง (desktop)
- * ✅ rowsToRender = โครงสร้างที่ใช้ render (mobile 1 column จะ reorder)
+ * ✅ Mapping: old id (หน้าเดิม) -> api id
+ * ✅ id หน้าเดิม "ห้ามเปลี่ยน"
+ * ✅ FIX: Internal Audit (old id 7) -> api id 7
  */
-const baseRows = [
-  // Row 1 – CEO
-  [
-    {
-      id: 1,
-      name: "ທ່ານ ສີສະໝອນ ສຣິດທິຣາດ",
-      role: "ຜູ້ອຳນວຍການ ",
-      photo: "/aboutus/company/lapnet_employee_image/CEO/CEO.png",
-    },
-  ],
+const API_ID_BY_OLD_ID = Object.freeze({
+  1: 36, // CEO
+  2: 35, // COO
+  3: 34, // Head of administration
+  4: 28, // Head of finance
+  5: 24, // Head of IT
+  6: 17, // Head of operation
+  7: 7,  // ✅ Internal Audit (fetch from API id: 7)
+  8: 33, // Head of bc
+});
 
-  // Row 2 – COO
-  [
-    {
-      id: 2,
-      name: "ທ່ານ ນາງ ນີວະສອນ ມາລາທິບ",
-      role: "ຮອງຜູ້ອຳນວຍການ ",
-      photo: "/aboutus/company/lapnet_employee_image/CEO/CFO.png",
-    },
-  ],
+/** ✅ เก็บรูปที่ fetch มาแล้ว (oldId -> objectURL หรือ dataURL) */
+const photoObjectUrlByOldId = ref({});
+const createdObjectUrls = new Set();
 
-  // Row 3 – Heads (5 คน)
-  [
-    {
-      id: 3,
-      name: "ທ່ານ ສັນຕິພາບ ປານມະໄລທອງ ",
-      role: "ຫົວໜ້າພະແນກຫ້ອງການ",
-      photo: "/aboutus/company/lapnet_employee_image/aministration/1.png",
-    },
-    {
-      id: 4,
-      name: "ທ່ານ ວັດທະນາ ວໍລະບຸດ",
-      role: "ຫົວໜ້າພະແນກບັນຊີ ແລະ ການເງິນ",
-      photo: "/aboutus/company/lapnet_employee_image/finance/1.png",
-    },
-    {
-      id: 5,
-      name: "ທ່ານ ພູເຂົາທອງ ເມືອງວົງ",
-      role: "ຫົວໜ້າພະແນກໄອທີ",
-      photo: "/aboutus/company/lapnet_employee_image/IT/1.png",
-    },
-    {
-      id: 6,
-      name: "ທ່ານ ເດດມີໄຊ ວັນນະຈິດ",
-      role: "ຫົວໜ້າພະແນກດໍາເນີນງານ",
-      photo: "/aboutus/company/lapnet_employee_image/operation/1.png",
-    },
-    {
-      id: 7,
-      name: "ກວດສອບພາຍໃນ",
-      role: "Internal Audit",
-      photo: "/aboutus/company/avarta.png",
-    },
-  ],
+const unwrapEmployees = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  if (payload && Array.isArray(payload.result)) return payload.result;
+  if (payload && Array.isArray(payload.items)) return payload.items;
+  return [];
+};
 
-  // Row 4 – (1 node) ✅ ใส่ flag isRow4 เพื่อเอาไปจัด style/reorder ตอน mobile
-  [
-    {
-      id: 8,
-      name: "ທ່ານ ນາງ ອາລີພອນ ເພັງສະຫວັດດີ",
-      role: "ຮອງຫົວໜ້າພະແນກຫ້ອງການ",
-      photo: "/aboutus/company/lapnet_employee_image/aministration/2.png",
-      isRow4: true,
-    },
-  ],
-];
+const getEmpId = (emp) => {
+  const raw =
+    emp?.id ??
+    emp?.emp_id ??
+    emp?.employee_id ??
+    emp?.EMP_ID ??
+    emp?.ID ??
+    emp?.Id;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+};
+
+const getField = (obj, keys, fallback = "") => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return fallback;
+};
+
+const isProbablyBase64 = (s) => {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (t.startsWith("data:image/")) return false;
+  if (t.length < 50) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(t);
+};
+
+/**
+ * ✅ normalize รูปจาก API
+ * รองรับ:
+ * - data:image/...
+ * - base64 string (ไม่มี prefix) => data:image/png;base64,...
+ * - full url
+ * - /path หรือ path => prefix ด้วย origin
+ */
+const normalizeApiPhoto = (path) => {
+  if (!path || typeof path !== "string") return "";
+  const p = path.trim();
+  if (!p) return "";
+
+  if (p.startsWith("data:image/")) return p;
+  if (isProbablyBase64(p)) return `data:image/png;base64,${p}`;
+  if (/^https?:\/\//i.test(p)) return p;
+
+  if (p.startsWith("/")) return `${EMP_API_ORIGIN}${p}`;
+  return `${EMP_API_ORIGIN}/${p}`;
+};
+
+const employeesById = computed(() => {
+  const m = new Map();
+  for (const emp of apiEmployees.value) {
+    const id = getEmpId(emp);
+    if (id != null) m.set(id, emp);
+  }
+  return m;
+});
+
+/**
+ * ✅ ดึง field รูปจาก API: "imageprofile" เป็นหลัก
+ */
+const getRawPhotoFromEmp = (emp) => {
+  return getField(
+    emp,
+    [
+      "imageprofile", // ✅ ตัวหลัก
+      "imageProfile",
+      "image_profile",
+      "profileImage",
+      "profile_image",
+      "photo",
+      "photo_url",
+      "avatar",
+      "image",
+      "img",
+      "picture",
+    ],
+    ""
+  );
+};
+
+const resolveEmpFromOldId = (oldId) => {
+  // ✅ ใช้ mapping ก่อน (และเผื่อ mapping ไม่มี จะ fallback เป็น oldId)
+  const apiId = API_ID_BY_OLD_ID[oldId] ?? oldId;
+  if (!apiId) return null;
+  return employeesById.value.get(apiId) || null;
+};
+
+/**
+ * ✅ fetch รูปเป็น blob แล้วสร้าง objectURL
+ * - ถ้า fetch fail จะ fallback ไปใช้ URL ตรง
+ */
+const fetchImageAsObjectUrl = async (url) => {
+  if (!url) return "";
+  if (url.startsWith("data:image/")) return url;
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      // ถ้ารูปต้องใช้ cookie/session ให้เปิดบรรทัดนี้
+      // credentials: "include",
+    });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    createdObjectUrls.add(objUrl);
+    return objUrl;
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * ✅ preload รูปให้ person.photo พร้อมใช้ใน <img :src="person.photo" />
+ */
+const preloadPhotos = async () => {
+  const targets = [1, 2, 3, 4, 5, 6, 7, 8];
+
+  const jobs = targets.map(async (oldId) => {
+    const emp = resolveEmpFromOldId(oldId);
+    if (!emp) return;
+
+    const raw = getRawPhotoFromEmp(emp);
+    const normalized = normalizeApiPhoto(raw);
+    if (!normalized) return;
+
+    // ถ้าเป็น data url/base64 ไม่ต้อง fetch
+    if (normalized.startsWith("data:image/")) {
+      photoObjectUrlByOldId.value[oldId] = normalized;
+      return;
+    }
+
+    const objUrl = await fetchImageAsObjectUrl(normalized);
+    photoObjectUrlByOldId.value[oldId] = objUrl || normalized;
+  });
+
+  await Promise.all(jobs);
+};
+
+const buildPersonFromApi = (oldId, extra = {}) => {
+  const emp = resolveEmpFromOldId(oldId);
+
+  const name = emp
+    ? getField(emp, ["full_name", "name", "emp_name", "employee_name", "fullname"], "")
+    : "";
+
+  const role = emp
+    ? getField(emp, ["role", "position", "title", "emp_position", "employee_position"], "")
+    : "";
+
+  // ✅ ใส่รูปที่ preload มาแล้ว (objectURL/dataURL/url)
+  const photo = photoObjectUrlByOldId.value?.[oldId] || "";
+
+  return {
+    id: oldId, // ✅ keep old id
+    name,
+    role,
+    photo,
+    ...extra,
+  };
+};
+
+const fetchEmployees = async () => {
+  loading.value = true;
+  apiError.value = null;
+
+  try {
+    const res = await fetch(EMP_API_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    apiEmployees.value = unwrapEmployees(json);
+  } catch (err) {
+    apiError.value = err?.message || String(err);
+    apiEmployees.value = [];
+  } finally {
+    loading.value = false;
+  }
+};
+
+/**
+ * ✅ baseRows สร้างจาก API (รูปมาจาก imageprofile ที่ fetch แล้ว)
+ */
+const baseRows = computed(() => {
+  const row1 = [buildPersonFromApi(1)];
+  const row2 = [buildPersonFromApi(2)];
+  const row3 = [
+    buildPersonFromApi(3),
+    buildPersonFromApi(4),
+    buildPersonFromApi(5),
+    buildPersonFromApi(6),
+    buildPersonFromApi(7), // ✅ Internal Audit (api id 7)
+  ];
+  const row4 = [buildPersonFromApi(8, { isRow4: true })];
+  return [row1, row2, row3, row4];
+});
 
 // ✅ ตรวจโหมด 1 column (<= 640px)
 const isOneColumn = ref(false);
@@ -168,22 +330,18 @@ const handleMQ = (e) => {
   isOneColumn.value = !!e.matches;
 };
 
-// ✅ rows ที่ใช้ render จริง
-// - Desktop: [row1,row2,row3,row4]
-// - Mobile 1 column: ย้าย id:8 ไปอยู่ใต้ id:3 (หลังตัวแรกของ row3) แล้วรวมเป็นแถวเดียว (ไม่มี row4 แยก)
+// ✅ Mobile 1 column: ย้าย id:8 ไปอยู่ใต้ id:3 แล้วรวมเป็นแถวเดียว
 const rowsToRender = computed(() => {
-  if (!isOneColumn.value) return baseRows;
+  if (!isOneColumn.value) return baseRows.value;
 
-  const r1 = baseRows[0] ?? [];
-  const r2 = baseRows[1] ?? [];
-  const r3 = baseRows[2] ? [...baseRows[2]] : [];
-  const r4First = baseRows[3]?.[0];
+  const rows = baseRows.value;
+  const r1 = rows[0] ?? [];
+  const r2 = rows[1] ?? [];
+  const r3 = rows[2] ? [...rows[2]] : [];
+  const r4First = rows[3]?.[0];
 
-  if (r4First && r3.length > 0) {
-    r3.splice(1, 0, r4First); // ✅ หลัง id:3 ทันที
-  } else if (r4First) {
-    r3.push(r4First);
-  }
+  if (r4First && r3.length > 0) r3.splice(1, 0, r4First);
+  else if (r4First) r3.push(r4First);
 
   return [r1, r2, r3];
 });
@@ -192,18 +350,12 @@ const rowsToRender = computed(() => {
 const getInitials = (name) => (name || "").trim().slice(0, 2) || "?";
 
 let gsapCtx;
+let hasAnimated = false;
 
-onMounted(() => {
-  // matchMedia (กัน SSR)
-  if (typeof window !== "undefined") {
-    mq = window.matchMedia("(max-width: 640px)");
-    isOneColumn.value = mq.matches;
+const runGsap = () => {
+  if (hasAnimated) return;
+  hasAnimated = true;
 
-    if (mq.addEventListener) mq.addEventListener("change", handleMQ);
-    else mq.addListener(handleMQ);
-  }
-
-  // GSAP
   gsapCtx = gsap.context(() => {
     const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
@@ -240,10 +392,37 @@ onMounted(() => {
         "-=0.55"
       );
   }, root.value);
+};
+
+onMounted(async () => {
+  // matchMedia
+  if (typeof window !== "undefined") {
+    mq = window.matchMedia("(max-width: 640px)");
+    isOneColumn.value = mq.matches;
+
+    if (mq.addEventListener) mq.addEventListener("change", handleMQ);
+    else mq.addListener(handleMQ);
+  }
+
+  // ✅ load API + preload รูป (imageprofile)
+  await fetchEmployees();
+  await preloadPhotos();
+
+  // ให้ DOM อัปเดตก่อน animate
+  await nextTick();
+  runGsap();
 });
 
 onBeforeUnmount(() => {
   if (gsapCtx) gsapCtx.revert();
+
+  // ✅ revoke objectURL กัน memory leak
+  for (const u of createdObjectUrls) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {}
+  }
+  createdObjectUrls.clear();
 
   if (mq) {
     if (mq.removeEventListener) mq.removeEventListener("change", handleMQ);
@@ -346,7 +525,6 @@ onBeforeUnmount(() => {
   background: radial-gradient(circle at top, #f8fafc, #edf2ff 40%, #f9fafb);
   perspective: 1680px;
 
-  /* ✅ Row4 Variables (ใช้กับการ์ดที่มี isRow4=true แม้ตอน mobile จะถูก merge เข้า row3) */
   --row4-card-width: 265px;
   --row4-card-padding: 56px 28px 22px;
   --row4-avatar-size: 112px;
@@ -357,7 +535,6 @@ onBeforeUnmount(() => {
 
 /* ROWS */
 .org-row {
-  
   margin-top: 30px;
   display: flex;
   justify-content: center;
@@ -365,14 +542,13 @@ onBeforeUnmount(() => {
   margin-bottom: 70px;
 }
 
-/* ✅ Row 4: desktop ให้ชิดซ้าย (จะมีเฉพาะตอน desktop เพราะ mobile จะ merge แล้วไม่มี row--3) */
+/* ✅ Row 4 desktop ให้ชิดซ้าย */
 .org-row--3 {
   justify-content: flex-start;
   margin-bottom: 0;
-  
 }
 
-/* CARD (CEO/COO ใช้ style เดิม) */
+/* CARD */
 .org-card {
   position: relative;
   width: 420px;
@@ -412,7 +588,7 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
-/* ✅ Heads style (row3/row4 zone) */
+/* ✅ Heads style */
 .org-card--head {
   width: 320px;
   margin-top: 30px;
@@ -428,11 +604,10 @@ onBeforeUnmount(() => {
   box-shadow: 0 26px 60px rgba(15, 23, 42, 0.6);
 }
 
-/* ✅ Row4 override: ปรับขนาดได้ตามต้องการ (ทำงานผ่าน isRow4 flag) */
+/* ✅ Row4 override */
 .org-card--row4 {
   width: var(--row4-card-width, 300px);
   padding: var(--row4-card-padding, 56px 28px 22px);
-
   margin-top: 40px;
 }
 
@@ -466,7 +641,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.55);
 }
 
-/* ลดวงแหวนใน heads (รวมถึง Row4 card ถ้าไม่ได้ override) */
 .org-card--head .org-avatar-ring {
   width: 112px;
   height: 112px;
@@ -496,7 +670,7 @@ onBeforeUnmount(() => {
   color: #e5edff;
 }
 
-/* TEXT (default) */
+/* TEXT */
 .org-card-name {
   margin: 18px 0 6px;
   font-size: var(--fs-md);
@@ -509,7 +683,6 @@ onBeforeUnmount(() => {
   opacity: 0.94;
 }
 
-/* heads text */
 .org-card--head .org-card-name {
   font-size: 1.02rem;
 }
@@ -524,7 +697,6 @@ onBeforeUnmount(() => {
     gap: 28px;
   }
 
-  /* ✅ responsive: Row4 (ถ้ามีแถวแยกบน desktop) ให้มาอยู่กลาง */
   .org-row--3 {
     justify-content: center;
   }
@@ -557,7 +729,6 @@ onBeforeUnmount(() => {
   }
 
   .org-card--row4 {
-  
     width: var(--row4-card-width, 320px);
     padding: var(--row4-card-padding, 56px 28px 22px);
   }
