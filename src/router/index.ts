@@ -35,7 +35,7 @@ import Boarddirector_risk from "../Views/Aboutus/board_director/boarddirector_ri
 import Productqrpayment from "../Views/products/productqrpayment.vue";
 import Companystructureimage from "../Views/Aboutus/companystructure/companystructureimage.vue";
 import Companystructure from "../Views/Aboutus/companystructure/companystructure.vue";
-import Adminlogin from "../login/adminlogin.vue";
+
 import allproduct from "../Views/products/allproduct.vue";
 import atmmockup from "../components/mockup/atmmockup.vue";
 import testhome from "../Views/Homepage/testhome.vue";
@@ -296,12 +296,7 @@ const routes: RouteRecordRaw[] = [
     component: Contactus,
   },
 
-  // ##################### Admin login ##############################
-  {
-    path: "/login",
-    name: "login",
-    component: Adminlogin,
-  },
+
 
   /** ✅ Masked route: /r/<token> (ต้องอยู่ก่อน catch-all) */
   {
