@@ -159,7 +159,7 @@
                 <template v-else>
                   <article
                     v-for="(m, i) in filteredMembers"
-                    :key="'bank' + i"
+                    :key="'bank' + (m.id ?? i)"
                     class="memberCard"
                     @mouseenter="onMemberEnter"
                     @mouseleave="onMemberLeave"
@@ -259,7 +259,7 @@
                 <template v-else>
                   <article
                     v-for="(m, i) in filteredMembers"
-                    :key="'right' + i"
+                    :key="'fintech' + (m.id ?? i)"
                     class="memberCard"
                     @mouseenter="onMemberEnter"
                     @mouseleave="onMemberLeave"
@@ -339,10 +339,12 @@ type Member = {
   websiteUrl?: string;
 };
 
+/** ✅ API shape (เพิ่ม field fintech) */
 type ApiMember = {
   idmember: number | string;
+  fintech?: number | string | null; // ✅ 0/1 จาก API
   BanknameLA?: string;
-  BanknameEN?: string; // ✅ used for memberRight
+  BanknameEN?: string;
   LinkFB?: string | null;
   LinkWeb?: string | null;
   image_url?: string | null;
@@ -376,28 +378,22 @@ const props = withDefaults(defineProps<Props>(), {
   stat2Value: 2,
   stat2Label: "Members",
   stat2Suffix: "+",
-  stat2Sub: "2 ສະມາຊິກທີເຂົ້າຮ່ວມກັບ Lao National Payment Network CO., LTD",
+  stat2Sub: "2 Fintech ທີເຂົ້າຮ່ວມກັບ Lao National Payment Network CO., LTD",
 });
 
 /** ✅ API */
 const MEMBERS_API = "http://localhost:3000/api/members";
 const API_BASE = "http://localhost:3000";
 
-/** ✅ BANKS from API */
+/** ✅ BANKS fintech=0 */
 const banksFromApi = ref<Member[]>([]);
 const banksLoading = ref(false);
 const banksError = ref<string | null>(null);
 
-/** ✅ FINTECH (memberRight) from API */
+/** ✅ FINTECH fintech=1 */
 const fintechFromApi = ref<Member[]>([]);
 const fintechLoading = ref(false);
 const fintechError = ref<string | null>(null);
-
-/** ✅ allowed ids: banks 1..18 and 21 */
-const allowedBankIds = new Set<number>([...Array.from({ length: 18 }, (_, i) => i + 1), 21]);
-
-/** ✅ fintech ids (commonly 19 & 20 if banks are 1..18 and 21) */
-const allowedFintechIds = new Set<number>([23, 24]);
 
 const resolveLogo = (u?: string | null) => {
   if (!u) return undefined;
@@ -409,44 +405,19 @@ const resolveLogo = (u?: string | null) => {
   }
 };
 
-/** ✅ Load BANKS list (BanknameLA -> name) */
-const loadBanks = async () => {
-  banksLoading.value = true;
-  banksError.value = null;
-
-  try {
-    const res = await fetch(MEMBERS_API, { method: "GET" });
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-
-    const json = await res.json();
-
-    const arr: ApiMember[] = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
-
-    const cleaned = arr
-      .map((raw) => ({ raw, id: Number(raw?.idmember) }))
-      .filter((x) => Number.isFinite(x.id) && allowedBankIds.has(x.id))
-      .sort((a, b) => a.id - b.id)
-      .map(({ raw, id }) => ({
-        id,
-        name: String(raw.BanknameLA || "").trim(),
-        facebookUrl: raw.LinkFB ? String(raw.LinkFB).trim() : undefined,
-        websiteUrl: raw.LinkWeb ? String(raw.LinkWeb).trim() : undefined,
-        logo: resolveLogo(raw.image_url),
-      }))
-      .filter((m) => m.name.length > 0);
-
-    banksFromApi.value = cleaned;
-  } catch (e: any) {
-    banksFromApi.value = [];
-    banksError.value = e?.message ? `Failed to load banks: ${e.message}` : "Failed to load banks.";
-  } finally {
-    banksLoading.value = false;
-  }
+const toFlag = (v: any): number => {
+  // รองรับ 0/1, "0"/"1", true/false
+  if (v === true) return 1;
+  if (v === false) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 };
 
-/** ✅ Load FINTECH list (BanknameEN -> name) */
-const loadFintech = async () => {
+/** ✅ Fetch ครั้งเดียว แล้วแยกเป็น BANKS/FINTECH ตาม fintech=0/1 */
+const loadMembers = async () => {
+  banksLoading.value = true;
   fintechLoading.value = true;
+  banksError.value = null;
   fintechError.value = null;
 
   try {
@@ -454,31 +425,49 @@ const loadFintech = async () => {
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
 
     const json = await res.json();
-
     const arr: ApiMember[] = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
 
-    const cleaned = arr
-      .map((raw) => ({ raw, id: Number(raw?.idmember) }))
-      .filter((x) => Number.isFinite(x.id) && allowedFintechIds.has(x.id))
-      .sort((a, b) => a.id - b.id)
+    const mapped = arr
+      .map((raw) => ({
+        raw,
+        id: Number(raw?.idmember),
+        fintech: toFlag((raw as any)?.fintech),
+      }))
+      .filter((x) => Number.isFinite(x.id))
+      .sort((a, b) => a.id - b.id);
+
+    const banks = mapped
+      .filter((x) => x.fintech === 0)
       .map(({ raw, id }) => ({
         id,
-        // ✅ Map BanknameEN -> name (fallback to BanknameLA if BanknameEN missing)
-        name: String(raw.BanknameEN || raw.BanknameLA || "").trim(),
-        // ✅ Map LinkFB -> facebookUrl
+        name: String(raw.BanknameLA || raw.BanknameEN || "").trim(),
         facebookUrl: raw.LinkFB ? String(raw.LinkFB).trim() : undefined,
-        // ✅ Map LinkWeb -> websiteUrl
         websiteUrl: raw.LinkWeb ? String(raw.LinkWeb).trim() : undefined,
-        // ✅ Map image_url -> logo
         logo: resolveLogo(raw.image_url),
       }))
       .filter((m) => m.name.length > 0);
 
-    fintechFromApi.value = cleaned;
+    const fintech = mapped
+      .filter((x) => x.fintech === 1)
+      .map(({ raw, id }) => ({
+        id,
+        name: String(raw.BanknameEN || raw.BanknameLA || "").trim(),
+        facebookUrl: raw.LinkFB ? String(raw.LinkFB).trim() : undefined,
+        websiteUrl: raw.LinkWeb ? String(raw.LinkWeb).trim() : undefined,
+        logo: resolveLogo(raw.image_url),
+      }))
+      .filter((m) => m.name.length > 0);
+
+    banksFromApi.value = banks;
+    fintechFromApi.value = fintech;
   } catch (e: any) {
+    banksFromApi.value = [];
     fintechFromApi.value = [];
-    fintechError.value = e?.message ? `Failed to load fintech: ${e.message}` : "Failed to load fintech.";
+    const msg = e?.message ? String(e.message) : "Unknown error";
+    banksError.value = `Failed to load members: ${msg}`;
+    fintechError.value = `Failed to load members: ${msg}`;
   } finally {
+    banksLoading.value = false;
     fintechLoading.value = false;
   }
 };
@@ -713,8 +702,7 @@ watch(
 );
 
 onMounted(() => {
-  loadBanks();
-  loadFintech();
+  loadMembers();
 
   if (!root.value) return;
 
@@ -1435,6 +1423,49 @@ onBeforeUnmount(() => {
   mix-blend-mode: overlay;
 }
 
+
+@media (max-width: 984px) {
+  .kicker::before,
+  .card::before,
+  .cardAccent::before,
+  .ctaDot {
+    content: none !important;
+    display: none !important;
+  }
+
+  .card,
+  .overlayBackdrop,
+  .overlayPanel,
+  .overlayFooter,
+  .footerPill {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .whyBg,
+  .whyBg .glow,
+  .whyBg .noise {
+    display: none !important;
+  }
+
+  .why {
+    background: #071437 !important;
+    box-shadow: none !important;
+  }
+
+  .card,
+  .overlayPanel {
+    box-shadow: none !important;
+    background: rgba(8, 12, 28, 0.78) !important;
+  }
+
+  .card,
+  .overlayPanel,
+  .overlayBackdrop {
+    transform: none !important;
+    will-change: auto !important;
+  }
+}
 /* ====== Responsive ====== */
 @media (max-width: 960px) {
   .memberGrid {
