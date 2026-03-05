@@ -153,10 +153,10 @@ onMounted(() => {
 
 /* =========================
    DATA + FETCH + ID MAPPING
-   ใช้ข้อมูลจาก API: banklogo, bankname, profile, name, committee (โชว์ใน member.role)
+   Uses API fields: banklogo, bankname, profile, name, committee (shown in member.role)
    ========================= */
 
-// ✅ mapping: local slot id -> api id
+// Local slot id -> API id mapping
 const apiIdByLocalId = {
   1: 27,
   2: 26,
@@ -169,18 +169,46 @@ const apiIdByLocalId = {
   9: 20,
 };
 
-const API_URL = "http://175.0.198.10:3000/api/boarddirector";
+/** =========================
+ * API base from Vite .env ONLY
+ * Required in project root .env:
+ *   VITE_API_BASE_URL=http://localhost:3000
+ * ========================= */
+function resolveEnvBaseUrl() {
+  const raw = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  return raw.replace(/\/+$/, "");
+}
+
+function joinBaseAndPath(baseUrl, path) {
+  const b = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const p = String(path || "");
+
+  if (!b) return p;
+
+  // Prevent double "/api" when base already ends with "/api" and path starts with "/api"
+  if (b.endsWith("/api") && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, "");
+  }
+
+  if (!p) return b;
+  if (p.startsWith("/")) return b + p;
+  return b + "/" + p;
+}
+
+const API_BASE = resolveEnvBaseUrl();
+const API_URL = joinBaseAndPath(API_BASE, "/api/boarddirector");
+
 let fetchAbortController = null;
 
-/** ✅ สร้างโครง layout แบบเดิม (structure เดิม) แต่ข้อมูลว่าง รอ API เติม */
+/** Build the original layout skeleton (empty data, will be filled by API) */
 function buildLayoutSkeleton() {
   const emptyMember = (id, roleTag) => ({
     id,
     type: "member",
     name: "",
-    role: "", // ✅ จะใส่ "committee" จาก API ลงตรงนี้
+    role: "", // committee from API will be mapped here
     roleTag,
-    image: "", // profile -> จะ map มาใส่ตรงนี้
+    image: "", // profile -> mapped here
     bankName: "",
     bankLogo: "",
   });
@@ -189,12 +217,7 @@ function buildLayoutSkeleton() {
     [null, emptyMember(1, "president"), null, null],
     [null, emptyMember(2, "vp"), null, null],
     [emptyMember(3, "member"), emptyMember(4, "member"), null, emptyMember(5, "member")],
-    [
-      emptyMember(6, "member"),
-      emptyMember(7, "member"),
-      emptyMember(8, "member"),
-      emptyMember(9, "member"),
-    ],
+    [emptyMember(6, "member"), emptyMember(7, "member"), emptyMember(8, "member"), emptyMember(9, "member")],
   ];
 }
 
@@ -202,20 +225,22 @@ const layout = ref(buildLayoutSkeleton());
 
 function getApiOrigin() {
   try {
-    return new URL(API_URL).origin;
+    if (!API_BASE) return "";
+    return new URL(API_BASE).origin;
   } catch {
-    return "http://175.0.198.10:3000";
+    return "";
   }
 }
 
-/** ✅ ถ้า api ส่ง path แบบ relative ให้แปลงเป็น url เต็ม */
+/** Convert relative media path to absolute URL (using API origin) */
 function resolveMediaUrl(path) {
-  if (!path) return "";
-  if (typeof path !== "string") return "";
+  if (!path || typeof path !== "string") return "";
   if (/^https?:\/\//i.test(path)) return path;
   if (/^data:/i.test(path)) return path;
 
   const origin = getApiOrigin();
+  if (!origin) return "";
+
   if (path.startsWith("/")) return `${origin}${path}`;
   return `${origin}/${path}`;
 }
@@ -228,7 +253,7 @@ function pickArray(payload) {
   return [];
 }
 
-/** ✅ normalize ให้เข้ากับ style: banklogo, bankname, profile, name, committee -> role */
+/** Normalize API item to our UI schema */
 function normalizeApiItem(item) {
   const apiId =
     item?.id ??
@@ -238,14 +263,9 @@ function normalizeApiItem(item) {
     item?.board_director_id ??
     null;
 
-  const name =
-    item?.name ??
-    item?.fullname ??
-    item?.full_name ??
-    item?.member_name ??
-    "";
+  const name = item?.name ?? item?.fullname ?? item?.full_name ?? item?.member_name ?? "";
 
-  // ✅ committee จาก API -> ใส่ลง member.role เพื่อโชว์ใน <div class="member-role">{{ member.role }}</div>
+  // committee from API -> member.role
   const committee =
     item?.committee ??
     item?.committee_name ??
@@ -256,16 +276,10 @@ function normalizeApiItem(item) {
     item?.committeeRole ??
     "";
 
-  // (เผื่อ API บางชุดยังใช้ role/position/title)
-  const roleFallback =
-    item?.role ??
-    item?.position ??
-    item?.title ??
-    "";
-
+  const roleFallback = item?.role ?? item?.position ?? item?.title ?? "";
   const role = committee || roleFallback || "";
 
-  // ✅ profile -> slot.image (สำหรับ <img class="avatar-image" :src="slot.image" />)
+  // profile -> slot.image
   const profile =
     item?.profile ??
     item?.profile_path ??
@@ -277,13 +291,7 @@ function normalizeApiItem(item) {
     item?.image ??
     "";
 
-  const bankName =
-    item?.bankname ??
-    item?.bankName ??
-    item?.bank_name ??
-    item?.organization ??
-    item?.company ??
-    "";
+  const bankName = item?.bankname ?? item?.bankName ?? item?.bank_name ?? item?.organization ?? item?.company ?? "";
 
   const bankLogo =
     item?.banklogo ??
@@ -297,7 +305,7 @@ function normalizeApiItem(item) {
   return {
     apiId: apiId != null ? Number(apiId) : null,
     name,
-    role, // ✅ role = committee
+    role,
     image: resolveMediaUrl(profile),
     bankName,
     bankLogo: resolveMediaUrl(bankLogo),
@@ -306,6 +314,12 @@ function normalizeApiItem(item) {
 
 async function loadBoardDirectorsByIdMapping() {
   try {
+    if (!API_BASE) {
+      console.error("[boarddirector] Missing VITE_API_BASE_URL. Put it in project root .env and restart Vite.");
+      layout.value = buildLayoutSkeleton().map((row) => row.map((x) => (x && x.type === "member" ? null : x)));
+      return;
+    }
+
     if (fetchAbortController) fetchAbortController.abort();
     fetchAbortController = new AbortController();
 
@@ -318,11 +332,13 @@ async function loadBoardDirectorsByIdMapping() {
 
     const byApiId = new Map();
     normalized.forEach((x) => {
-      if (x.apiId !== null && x.apiId !== undefined) byApiId.set(Number(x.apiId), x);
+      if (x.apiId != null) byApiId.set(Number(x.apiId), x);
     });
 
-    // ✅ update each slot by mapping local id -> api id
-    layout.value.forEach((row) => {
+    // Clone layout to keep reactivity stable
+    const next = layout.value.map((row) => row.map((slot) => (slot ? { ...slot } : null)));
+
+    next.forEach((row) => {
       row.forEach((slot, idx) => {
         if (!slot || slot.type !== "member") return;
 
@@ -331,25 +347,23 @@ async function loadBoardDirectorsByIdMapping() {
 
         const apiItem = byApiId.get(Number(apiId));
         if (!apiItem) {
-          // ถ้าไม่มีข้อมูลใน API ให้ซ่อน cell (ไม่โชว์การ์ดเปล่า)
-          row[idx] = null;
+          row[idx] = null; // hide empty cell if API item missing
           return;
         }
 
-        // keep slot.id + slot.roleTag (layout position), replace data from API
+        // Keep slot.id + slot.roleTag (layout position), replace the rest
         slot.name = apiItem.name || "";
-        slot.role = apiItem.role || ""; // ✅ committee จะมาอยู่ตรงนี้
-        slot.image = apiItem.image || ""; // ✅ profile -> image
+        slot.role = apiItem.role || "";
+        slot.image = apiItem.image || "";
         slot.bankName = apiItem.bankName || "";
         slot.bankLogo = apiItem.bankLogo || "";
       });
     });
+
+    layout.value = next;
   } catch (err) {
     console.warn("[boarddirector] fetch failed:", err);
-    // ถ้า fetch พัง: ซ่อนทั้งหมด (ไม่ใช้ default)
-    layout.value = buildLayoutSkeleton().map((row) =>
-      row.map((x) => (x && x.type === "member" ? null : x))
-    );
+    layout.value = buildLayoutSkeleton().map((row) => row.map((x) => (x && x.type === "member" ? null : x)));
   }
 }
 
@@ -357,15 +371,11 @@ onMounted(() => {
   loadBoardDirectorsByIdMapping();
 });
 
-const cleanLayout = computed(() =>
-  layout.value.map((row) => row.filter((slot) => slot && slot.type === "member"))
-);
+const cleanLayout = computed(() => layout.value.map((row) => row.filter((slot) => slot && slot.type === "member")));
 
 const mobileMembers = computed(() => {
   const all = [];
-  layout.value.forEach((row) =>
-    row.forEach((slot) => slot && slot.type === "member" && all.push(slot))
-  );
+  layout.value.forEach((row) => row.forEach((slot) => slot && slot.type === "member" && all.push(slot)));
 
   const presidentIndex = all.findIndex((m) => m.roleTag === "president");
   const vpIndex = all.findIndex((m) => m.roleTag === "vp");
@@ -385,10 +395,7 @@ const sweepMap = new Map(); // cardEl -> timeline
 const sweepSet = new Set(); // timelines for cleanup
 
 function prefersReducedMotion() {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-  );
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 }
 
 function getShine(cardEl) {
@@ -402,7 +409,6 @@ function onCardEnter(e) {
   const shine = getShine(card);
   if (!shine) return;
 
-  // kill previous
   const prev = sweepMap.get(card);
   if (prev) {
     prev.kill();
@@ -410,20 +416,11 @@ function onCardEnter(e) {
     sweepMap.delete(card);
   }
 
-  // start immediately (no wait)
   gsap.set(shine, { xPercent: -180, opacity: 0 });
 
   const tl = gsap.timeline({ defaults: { overwrite: "auto" } });
   tl.to(shine, { opacity: 0.85, duration: 0.08, ease: "power2.out" }, 0);
-  tl.to(
-    shine,
-    {
-      xPercent: 180,
-      duration: 1.05,
-      ease: "sine.inOut",
-    },
-    0
-  );
+  tl.to(shine, { xPercent: 180, duration: 1.05, ease: "sine.inOut" }, 0);
   tl.to(shine, { opacity: 0, duration: 0.28, ease: "power2.out" }, 0.78);
 
   sweepMap.set(card, tl);
@@ -463,7 +460,6 @@ onBeforeUnmount(() => {
   sweepMap.clear();
 });
 </script>
-
 <style scoped>
 .navbardirector {
   width: 100%;

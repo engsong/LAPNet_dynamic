@@ -192,21 +192,46 @@ import secondfooter from '../../components/footer/mainfooter/secondfooter.vue';
 
 const swiperModules = [Autoplay, Pagination];
 
-// ✅ API
+/** =========================
+ * API base from Vite .env only
+ * Required in project root .env:
+ *   VITE_API_BASE_URL=http://localhost:3000
+ * ========================= */
+function resolveEnvBaseUrl() {
+  const raw = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+  return raw.replace(/\/+$/, '');
+}
 
-const JOBS_API = 'http://175.0.198.10:3000/api/jobs-list';
+function joinBaseAndPath(baseUrl, path) {
+  const b = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const p = String(path || '');
 
-// SECTION REFS FOR GSAP
+  if (!b) return p;
+
+  // Prevent double "/api" when base already ends with "/api" and path starts with "/api"
+  if (b.endsWith('/api') && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, '');
+  }
+
+  if (!p) return b;
+  if (p.startsWith('/')) return b + p;
+  return b + '/' + p;
+}
+
+const API_BASE = resolveEnvBaseUrl();
+const JOBS_API_URL = joinBaseAndPath(API_BASE, '/api/jobs-list');
+
+// Section refs for GSAP
 const heroRef = ref(null);
 const swiperRef = ref(null);
 const filterRef = ref(null);
 
-// DROPDOWN REFS
+// Dropdown refs
 const positionMenuRef = ref(null);
 const departmentMenuRef = ref(null);
 const levelMenuRef = ref(null);
 
-// SWIPER CONTENT (6 ACTIVITIES)
+// Swiper content (6 activities)
 const activities = [
   { title: 'ງານລ້ຽງ', subtitle: 'ງານລ້ຽງປີໃໝ່ລາວປີ 2025 ຂອງບໍລິສັດ LAPNet.', image: '/aboutus/joinus/joinusswiper/swiper1.jpeg' },
   { title: 'ທ່ອງທ່ຽວ', subtitle: 'LAPNet ທ່ອງທ່ຽວທີ່ນະຄອນຫຼວງພະບາງປະຈຳປີ 2025.', image: '/aboutus/joinus/joinusswiper/swiper2.jpeg' },
@@ -216,17 +241,17 @@ const activities = [
   { title: 'ທ່ອງທ່ຽວ', subtitle: 'LAPNet ທ່ອງທ່ຽວທີ່ວັງວຽງປະຈຳປີ 2023.', image: '/aboutus/joinus/joinusswiper/swiper6.jpeg' }
 ];
 
-// ✅ Filter labels (ตามที่คุณขอ)
+// Filter labels
 const ALL_POSITION = 'All Position';
 const ALL_DEPARTMENT = 'All departments';
 const ALL_LEVEL = 'Levels';
 
-// ✅ Jobs from API
+// Jobs from API
 const jobsLoading = ref(false);
 const jobsError = ref(null);
 const jobs = ref([]);
 
-// ✅ Dropdown State (Filters)
+// Dropdown state (filters)
 const selectedPosition = ref(ALL_POSITION);
 const selectedDepartment = ref(ALL_DEPARTMENT);
 const selectedLevel = ref(ALL_LEVEL);
@@ -283,19 +308,17 @@ const selectLevel = (value) => {
   isLevelOpen.value = false;
 };
 
-// ✅ helpers
-const unique = (arr) => Array.from(new Set(arr.filter(Boolean)));
-
+// Helpers
+const unique = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
 const pad2 = (n) => String(n).padStart(2, '0');
 
-// ✅ dd/mm/yy only
+// dd/mm/yy only
 const formatDDMMYY = (input) => {
   if (input == null) return '';
 
   const s = String(input).trim();
   if (!s) return '';
 
-  // already dd/mm/yyyy OR dd-mm-yy
   const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (m) {
     const dd = pad2(m[1]);
@@ -304,15 +327,13 @@ const formatDDMMYY = (input) => {
     return `${dd}/${mm}/${yy}`;
   }
 
-  // try timestamp number (ms / sec)
   const num = Number(s);
   let d = null;
 
   if (Number.isFinite(num) && s.length >= 10) {
-    // if seconds (10 digits) convert to ms
     d = new Date(s.length === 10 ? num * 1000 : num);
   } else {
-    d = new Date(s); // ISO string etc.
+    d = new Date(s);
   }
 
   if (Number.isNaN(d.getTime())) return s;
@@ -323,7 +344,7 @@ const formatDDMMYY = (input) => {
   return `${dd}/${mm}/${yy}`;
 };
 
-// ✅ Build filter lists from API (positions / departments / levels)
+// Build filter lists from API (positions / departments / levels)
 const positions = computed(() => {
   const list = unique(jobs.value.map((j) => j.position));
   return [ALL_POSITION, ...list];
@@ -339,26 +360,22 @@ const levels = computed(() => {
   return [ALL_LEVEL, ...list];
 });
 
-// ✅ Filtered Jobs (active=1 เท่านั้น) + filter by dropdown
+// Filtered jobs (active=1 only) + dropdown filters
 const filteredJobs = computed(() => {
   return jobs.value
-    .filter((j) => Number(j.active) === 1) // ✅ active = 1 show, active = 0 hide
+    .filter((j) => Number(j.active) === 1)
     .filter((j) => (selectedPosition.value === ALL_POSITION ? true : j.position === selectedPosition.value))
     .filter((j) => (selectedDepartment.value === ALL_DEPARTMENT ? true : j.department === selectedDepartment.value))
     .filter((j) => (selectedLevel.value === ALL_LEVEL ? true : j.level === selectedLevel.value));
 });
 
-// ✅ Accordion
+// Accordion
 const openJobId = ref(null);
 const toggleJob = (id) => {
   openJobId.value = openJobId.value === id ? null : id;
 };
 
-// ✅ Normalize from API structure:
-// title -> title
-// features.items -> details
-// time -> postedAt (dd/mm/yy)
-// + department/level/position (ถ้าไม่มีจะใส่ '-' / ใช้ title แทน position)
+// Normalize from API structure
 const normalizeJob = (item) => {
   const id = item?.id ?? item?.job_id ?? item?._id ?? `${Math.random()}`;
 
@@ -371,14 +388,11 @@ const normalizeJob = (item) => {
       ? detailsRaw.split('\n').map((x) => x.trim()).filter(Boolean)
       : [];
 
-  // ✅ force dd/mm/yy
   const postedAt = formatDDMMYY(item?.time ?? item?.postedAt ?? item?.posted_at ?? '');
 
-  // filters (try common field names)
   const department = String(item?.department ?? item?.dept ?? item?.departments ?? '-').trim() || '-';
   const level = String(item?.level ?? item?.levels ?? '-').trim() || '-';
 
-  // Position: ถ้า API ไม่มี position ใช้ title แทน
   const position = String(item?.position ?? item?.job_position ?? title).trim() || title;
 
   const active = item?.active ?? 1;
@@ -386,18 +400,21 @@ const normalizeJob = (item) => {
   return { id, title, details, postedAt, department, level, position, active };
 };
 
-// ✅ Fetch jobs list
+// Fetch jobs list
 const fetchJobs = async () => {
   jobsLoading.value = true;
   jobsError.value = null;
 
   try {
-    const res = await fetch(JOBS_API);
+    if (!API_BASE) {
+      throw new Error('Missing VITE_API_BASE_URL in .env');
+    }
+
+    const res = await fetch(JOBS_API_URL);
     if (!res.ok) throw new Error(`API error: ${res.status}`);
 
     const json = await res.json();
 
-    // support: [ ... ] OR { data: [ ... ] } OR { jobs: [ ... ] } OR { result: [ ... ] }
     const list =
       Array.isArray(json) ? json :
       Array.isArray(json?.data) ? json.data :
@@ -407,34 +424,34 @@ const fetchJobs = async () => {
 
     jobs.value = list.map(normalizeJob).filter(Boolean);
 
-    // reset accordion if current open job disappeared
     if (openJobId.value != null && !jobs.value.some((j) => j.id === openJobId.value)) {
       openJobId.value = null;
     }
   } catch (e) {
     const msg = e?.message || 'Failed to load jobs.';
     jobsError.value =
-      msg.includes('Failed to fetch') || msg.includes('NetworkError')
-        ? 'Failed to fetch jobs.'
-        : msg;
+      msg.includes('Missing VITE_API_BASE_URL')
+        ? msg
+        : (msg.includes('Failed to fetch') || msg.includes('NetworkError'))
+          ? 'Failed to fetch jobs.'
+          : msg;
+
     jobs.value = [];
   } finally {
     jobsLoading.value = false;
   }
 };
 
-// ✅ Page load animations + events
+// Page load animations + events
 onMounted(() => {
   window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
 
-  // gsap intro
   gsap.from(heroRef.value, { opacity: 0, y: 40, duration: 1, ease: 'power3.out' });
   gsap.from(swiperRef.value, { opacity: 0, y: 40, duration: 1, delay: 0.2, ease: 'power3.out' });
   gsap.from(filterRef.value, { opacity: 0, y: 40, duration: 1, delay: 0.4, ease: 'power3.out' });
 
   window.addEventListener('click', closeAllDropdowns);
 
-  // ✅ fetch API data
   fetchJobs();
 });
 

@@ -106,204 +106,183 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
-import { gsap } from 'gsap'
+import { ref, onMounted, onUnmounted, nextTick } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
+import { gsap } from "gsap";
 
-import bod_navbar from '../../../Views/Aboutus/companystructure/navbarcompany/bod_navbar.vue'
-import main_navbar from '../../../components/miannavbar/main_navbar.vue'
-import secondfooter from '../../../components/footer/mainfooter/secondfooter.vue'
+import bod_navbar from "../../../Views/Aboutus/companystructure/navbarcompany/bod_navbar.vue";
+import main_navbar from "../../../components/miannavbar/main_navbar.vue";
+import secondfooter from "../../../components/footer/mainfooter/secondfooter.vue";
 
-const orgLayout = ref(null)
+const orgLayout = ref(null);
 
-const PAN_DISTANCE = 90
+const PAN_DISTANCE = 90;
 
-// ✅ API
-const API_URL = 'http://175.0.198.10:3000/api/boarddirector'
-const BASE_URL = 'http://175.0.198.10:3000'
+/** =========================
+ * ✅ API base from Vite .env ONLY
+ * Required in project root .env:
+ *   VITE_API_BASE_URL=http://localhost:3000
+ * ========================= */
+function resolveEnvBaseUrl() {
+  const raw = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  return raw.replace(/\/+$/, "");
+}
+
+function joinBaseAndPath(baseUrl, path) {
+  const b = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const p = String(path || "");
+
+  if (!b) return p;
+
+  // Prevent double "/api" when base already ends with "/api" and path starts with "/api"
+  if (b.endsWith("/api") && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, "");
+  }
+
+  if (!p) return b;
+  if (p.startsWith("/")) return b + p;
+  return b + "/" + p;
+}
+
+const API_BASE = resolveEnvBaseUrl();
+const API_URL = joinBaseAndPath(API_BASE, "/api/boarddirector");
 
 // ✅ mapping row -> api id
-const ROW1_API_ID = 25
-const ROW2_API_ID = 24
-const ROW3_API_ID = 23
+const ROW1_API_ID = 25;
+const ROW2_API_ID = 24;
+const ROW3_API_ID = 23;
 
-const loading = ref(false)
-const error = ref('')
-const abortCtrl = ref(null)
+const loading = ref(false);
+const error = ref("");
+const abortCtrl = ref(null);
 
 // ✅ slots (no default)
-const slot1 = ref(null) // id = 25
-const slot2 = ref(null) // id = 24
-const slot3 = ref(null) // id = 23
+const slot1 = ref(null); // id = 25
+const slot2 = ref(null); // id = 24
+const slot3 = ref(null); // id = 23
 
 // ✅ GSAP timelines (fix flicker by NOT reverting styles on unmount)
-let enterTl = null
-let leaveTween = null
+let enterTl = null;
+let leaveTween = null;
 
 function norm(v) {
-  return String(v ?? '').trim()
+  return String(v ?? "").trim();
 }
 function pick(obj, ...keys) {
   for (const k of keys) {
-    const v = obj?.[k]
-    if (v !== null && v !== undefined && String(v).trim() !== '') return v
+    const v = obj?.[k];
+    if (v !== null && v !== undefined && String(v).trim() !== "") return v;
   }
-  return ''
+  return "";
 }
-function resolveImageUrl(v, baseOverride) {
-  if (!v) return ''
-  let s = String(v).trim()
-  if (!s) return ''
 
-  if (
-    s.startsWith('http://') ||
-    s.startsWith('https://') ||
-    s.startsWith('data:') ||
-    s.startsWith('blob:')
-  ) {
-    return s
+function resolveImageUrl(v) {
+  if (!v) return "";
+  let s = String(v).trim();
+  if (!s) return "";
+
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("data:") || s.startsWith("blob:")) {
+    return s;
   }
 
-  const base = String(baseOverride || BASE_URL || '').replace(/\/$/, '')
-  if (!base) return s
+  const base = String(API_BASE || "").replace(/\/$/, "");
+  if (!base) return s;
 
-  if (s.startsWith('/')) return base + s
-  s = s.replace(/^\.\//, '')
-  return base + '/' + s
+  if (s.startsWith("/")) return base + s;
+  s = s.replace(/^\.\//, "");
+  return base + "/" + s;
 }
 
 function apiItemId(x) {
-  const raw = pick(
-    x,
-    'id',
-    'boarddirector_id',
-    'boardDirectorId',
-    'director_id',
-    'board_director_id'
-  )
-  const n = Number(raw)
-  return Number.isFinite(n) ? n : null
+  const raw = pick(x, "id", "boarddirector_id", "boardDirectorId", "director_id", "board_director_id");
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 // ✅ fields from API only: banklogo, bankname, profile, name, role
 function personName(x) {
-  return norm(
-    pick(
-      x,
-      'name',
-      'full_name',
-      'director_name',
-      'directorName',
-      'emp_name',
-      'empName'
-    )
-  )
+  return norm(pick(x, "name", "full_name", "director_name", "directorName", "emp_name", "empName"));
 }
 
 function personRole(x) {
-  return norm(pick(x, 'role', 'position', 'title', 'director_role', 'directorRole'))
+  return norm(pick(x, "role", "position", "title", "director_role", "directorRole"));
 }
 
 function bankName(x) {
   const nested =
-    pick(x?.bank, 'bankname', 'bankName', 'bank_name', 'name') ||
-    pick(x?.bankInfo, 'bankname', 'bankName', 'bank_name', 'name') ||
-    ''
+    pick(x?.bank, "bankname", "bankName", "bank_name", "name") ||
+    pick(x?.bankInfo, "bankname", "bankName", "bank_name", "name") ||
+    "";
   return norm(
     nested ||
-      pick(
-        x,
-        'bankname',
-        'bankName',
-        'bank_name',
-        'member_bank',
-        'memberBank',
-        'company',
-        'company_name'
-      )
-  )
+      pick(x, "bankname", "bankName", "bank_name", "member_bank", "memberBank", "company", "company_name")
+  );
 }
 
 function avatarSrc(x) {
   const raw = pick(
     x,
-    // profile main
-    'profile',
-    'profile_img',
-    'profileImg',
-    'imageprofile',
-    'imageProfile',
-    // fallback keys (still from API only)
-    'image',
-    'avatar',
-    'photo',
-    'img',
-    'picture',
-    'director_image',
-    'directorImage'
-  )
-  return resolveImageUrl(raw) || ''
+    "profile",
+    "profile_img",
+    "profileImg",
+    "imageprofile",
+    "imageProfile",
+    "image",
+    "avatar",
+    "photo",
+    "img",
+    "picture",
+    "director_image",
+    "directorImage"
+  );
+  return resolveImageUrl(raw) || "";
 }
 
 function bankLogoSrc(x) {
   const nested =
-    pick(
-      x?.bank,
-      'banklogo',
-      'bankLogo',
-      'bank_logo',
-      'logo',
-      'logo_path',
-      'logoPath'
-    ) ||
-    pick(
-      x?.bankInfo,
-      'banklogo',
-      'bankLogo',
-      'bank_logo',
-      'logo',
-      'logo_path',
-      'logoPath'
-    ) ||
-    ''
+    pick(x?.bank, "banklogo", "bankLogo", "bank_logo", "logo", "logo_path", "logoPath") ||
+    pick(x?.bankInfo, "banklogo", "bankLogo", "bank_logo", "logo", "logo_path", "logoPath") ||
+    "";
 
   const raw =
     nested ||
     pick(
       x,
-      // banklogo main
-      'banklogo',
-      'bankLogo',
-      'bank_logo',
-      // fallback keys (still from API only)
-      'logo',
-      'logobank',
-      'logo_bank',
-      'logo_path',
-      'logoPath',
-      'bank_logo_path',
-      'bankLogoUrl',
-      'bank_logo_url'
-    )
+      "banklogo",
+      "bankLogo",
+      "bank_logo",
+      "logo",
+      "logobank",
+      "logo_bank",
+      "logo_path",
+      "logoPath",
+      "bank_logo_path",
+      "bankLogoUrl",
+      "bank_logo_url"
+    );
 
-  return resolveImageUrl(raw) || ''
+  return resolveImageUrl(raw) || "";
 }
 
 async function fetchBoardDirectorByRowIds() {
   try {
-    error.value = ''
-    loading.value = true
+    error.value = "";
+    loading.value = true;
 
-    if (abortCtrl.value) abortCtrl.value.abort()
-    abortCtrl.value = new AbortController()
-
-    const res = await fetch(API_URL, { signal: abortCtrl.value.signal })
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '')
-      throw new Error(`HTTP ${res.status}${txt ? ` • ${txt.slice(0, 140)}` : ''}`)
+    if (!API_BASE) {
+      throw new Error("Missing VITE_API_BASE_URL in .env");
     }
 
-    const data = await res.json()
+    if (abortCtrl.value) abortCtrl.value.abort();
+    abortCtrl.value = new AbortController();
+
+    const res = await fetch(API_URL, { signal: abortCtrl.value.signal });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}${txt ? ` • ${txt.slice(0, 140)}` : ""}`);
+    }
+
+    const data = await res.json();
 
     const list = Array.isArray(data)
       ? data
@@ -317,105 +296,106 @@ async function fetchBoardDirectorByRowIds() {
               ? data.boarddirector
               : Array.isArray(data?.directors)
                 ? data.directors
-                : []
+                : [];
 
-    const wanted = new Set([ROW1_API_ID, ROW2_API_ID, ROW3_API_ID])
-    const byId = new Map()
+    const wanted = new Set([ROW1_API_ID, ROW2_API_ID, ROW3_API_ID]);
+    const byId = new Map();
 
-    ;(list || []).forEach((x) => {
-      const id = apiItemId(x)
-      if (id != null && wanted.has(id)) byId.set(id, x)
-    })
+    (list || []).forEach((x) => {
+      const id = apiItemId(x);
+      if (id != null && wanted.has(id)) byId.set(id, x);
+    });
 
     // ✅ strict mapping: row1=25, row2=24, row3=23
-    slot1.value = byId.get(ROW1_API_ID) || null
-    slot2.value = byId.get(ROW2_API_ID) || null
-    slot3.value = byId.get(ROW3_API_ID) || null
+    slot1.value = byId.get(ROW1_API_ID) || null;
+    slot2.value = byId.get(ROW2_API_ID) || null;
+    slot3.value = byId.get(ROW3_API_ID) || null;
   } catch (e) {
-    if (e?.name === 'AbortError') return
-    error.value = 'Failed to load (check API / CORS)'
-    console.error('[boarddirector fetch]', e)
-    slot1.value = null
-    slot2.value = null
-    slot3.value = null
+    if (e?.name === "AbortError") return;
+    error.value = e?.message?.includes("VITE_API_BASE_URL")
+      ? "Missing VITE_API_BASE_URL. Put it in project root .env and restart Vite."
+      : "Failed to load (check API / CORS)";
+    console.error("[boarddirector fetch]", e);
+    slot1.value = null;
+    slot2.value = null;
+    slot3.value = null;
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 function playEnterAnimation() {
-  if (!orgLayout.value) return
+  if (!orgLayout.value) return;
 
-  const root = orgLayout.value
-  const shell = root.querySelector('.org-shell')
-  const header = root.querySelector('.org-header')
-  const cards = Array.from(root.querySelectorAll('.person-card'))
+  const root = orgLayout.value;
+  const shell = root.querySelector(".org-shell");
+  const header = root.querySelector(".org-header");
+  const cards = Array.from(root.querySelectorAll(".person-card"));
 
   // stop any previous animations
-  enterTl?.kill?.()
-  leaveTween?.kill?.()
-  gsap.killTweensOf([root, shell, header, ...cards])
+  enterTl?.kill?.();
+  leaveTween?.kill?.();
+  gsap.killTweensOf([root, shell, header, ...cards]);
 
   // ✅ IMPORTANT: set start state BEFORE playing (prevents flicker)
-  gsap.set(root, { opacity: 0, x: PAN_DISTANCE, force3D: true })
-  gsap.set(shell, { opacity: 0, y: 28, scale: 0.985, force3D: true })
-  gsap.set(header, { opacity: 0, y: 16, force3D: true })
-  gsap.set(cards, { opacity: 0, y: 16, force3D: true })
+  gsap.set(root, { opacity: 0, x: PAN_DISTANCE, force3D: true });
+  gsap.set(shell, { opacity: 0, y: 28, scale: 0.985, force3D: true });
+  gsap.set(header, { opacity: 0, y: 16, force3D: true });
+  gsap.set(cards, { opacity: 0, y: 16, force3D: true });
 
   enterTl = gsap.timeline({
-    defaults: { ease: 'power3.out', duration: 0.7 },
-  })
+    defaults: { ease: "power3.out", duration: 0.7 },
+  });
 
   enterTl
-    .to(root, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' })
-    .to(shell, { opacity: 1, y: 0, scale: 1 }, '-=0.25')
-    .to(header, { opacity: 1, y: 0, duration: 0.55 }, '-=0.45')
-    .to(cards, { opacity: 1, y: 0, stagger: 0.08, duration: 0.6 }, '-=0.35')
+    .to(root, { opacity: 1, x: 0, duration: 0.55, ease: "power2.out" })
+    .to(shell, { opacity: 1, y: 0, scale: 1 }, "-=0.25")
+    .to(header, { opacity: 1, y: 0, duration: 0.55 }, "-=0.45")
+    .to(cards, { opacity: 1, y: 0, stagger: 0.08, duration: 0.6 }, "-=0.35");
 }
 
 onMounted(async () => {
-  await nextTick()
+  await nextTick();
 
   // ✅ hide immediately so it won't "flash" visible then GSAP set to from-state
   if (orgLayout.value) {
-    gsap.set(orgLayout.value, { opacity: 0, x: PAN_DISTANCE, force3D: true })
+    gsap.set(orgLayout.value, { opacity: 0, x: PAN_DISTANCE, force3D: true });
   }
 
-  // fetch first (local API usually fast), then animate in
-  await fetchBoardDirectorByRowIds()
-  await nextTick()
+  // fetch first, then animate in
+  await fetchBoardDirectorByRowIds();
+  await nextTick();
 
-  playEnterAnimation()
-})
+  playEnterAnimation();
+});
 
 onBeforeRouteLeave((to, from, next) => {
-  if (!orgLayout.value) return next()
+  if (!orgLayout.value) return next();
 
   // stop enter anim to avoid conflicts
-  enterTl?.kill?.()
-  leaveTween?.kill?.()
-  gsap.killTweensOf(orgLayout.value)
+  enterTl?.kill?.();
+  leaveTween?.kill?.();
+  gsap.killTweensOf(orgLayout.value);
 
   // ✅ leave animation (no ctx.revert => no blink)
   leaveTween = gsap.to(orgLayout.value, {
     x: -PAN_DISTANCE,
     opacity: 0,
     duration: 0.42,
-    ease: 'power2.inOut',
-    overwrite: 'auto',
+    ease: "power2.inOut",
+    overwrite: "auto",
     onComplete: next,
     onInterrupt: next,
-  })
-})
+  });
+});
 
 onUnmounted(() => {
   // ✅ kill only (do NOT revert styles -> prevents flashing/blink)
-  enterTl?.kill?.()
-  leaveTween?.kill?.()
-  abortCtrl.value?.abort?.()
-})
+  enterTl?.kill?.();
+  leaveTween?.kill?.();
+  abortCtrl.value?.abort?.();
+});
 </script>
-
 <style scoped>
 .boardofdirector {
   width: 100%;

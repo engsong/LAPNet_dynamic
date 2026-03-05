@@ -7,40 +7,120 @@ import hero_sectionproduct1 from "./product_herosection/hero_sectionproduct1.vue
 import secondfooter from "../../components/footer/mainfooter/secondfooter.vue";
 import product1tech from "../techbenetfit/product1tech.vue";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-const MEMBERS_API_URL = `${API_BASE_URL}/api/members`;
+// -------------------- Env-only API base (Vite) --------------------
+// Required in .env:
+//   VITE_API_BASE_URL=http://localhost:3000
+function resolveEnvBaseUrl() {
+  // IMPORTANT: Use direct access so Vite injects import.meta.env correctly.
+  const raw = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  return raw.replace(/\/+$/, "");
+}
+
+function normalizeBaseUrl(u) {
+  return String(u || "").trim().replace(/\/+$/, "");
+}
+
+function joinBaseAndPath(baseUrl, path) {
+  const b = normalizeBaseUrl(baseUrl);
+  const p = String(path || "");
+
+  if (!b) return p;
+
+  // Prevent double "/api"
+  // - If base ends with "/api" and path starts with "/api/..." => drop one
+  if (b.endsWith("/api") && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, "");
+  }
+
+  if (!p) return b;
+  if (p.startsWith("/")) return b + p;
+  return b + "/" + p;
+}
+
+function isLoopbackHost(hostname) {
+  const h = String(hostname || "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0";
+}
+
+function isLikelyAssetPath(pathname) {
+  const p = String(pathname || "");
+  return /^\/(uploads|upload|images|files|static)\b/i.test(p) || p.includes("/uploads/") || p.includes("/images/");
+}
+
+// API base from env only
+const API_BASE = normalizeBaseUrl(resolveEnvBaseUrl());
+// Asset base for images/files (strip trailing "/api" if env includes it)
+const ASSET_BASE = API_BASE.endsWith("/api") ? API_BASE.slice(0, -4) : API_BASE;
+
+// Members endpoint
+const MEMBERS_API_URL = joinBaseAndPath(API_BASE, "/api/members");
+
+const ASSET_BASE_URL = (() => {
+  try {
+    return ASSET_BASE ? new URL(ASSET_BASE) : null;
+  } catch {
+    return null;
+  }
+})();
+
+function rewriteBadAbsoluteToEnvBase(absoluteUrl) {
+  try {
+    const u = new URL(absoluteUrl);
+    const fullPath = `${u.pathname || ""}${u.search || ""}`;
+
+    // Rewrite when backend returns localhost (wrong outside local machine)
+    if (isLoopbackHost(u.hostname)) {
+      return ASSET_BASE ? joinBaseAndPath(ASSET_BASE, fullPath) : absoluteUrl;
+    }
+
+    // Rewrite when it looks like an asset path but host does not match our env asset base
+    if (ASSET_BASE_URL && isLikelyAssetPath(u.pathname) && u.hostname !== ASSET_BASE_URL.hostname) {
+      return joinBaseAndPath(ASSET_BASE, fullPath);
+    }
+
+    return absoluteUrl;
+  } catch {
+    return absoluteUrl;
+  }
+}
+
+const normalizeUrl = (p) => {
+  const s = String(p || "").trim();
+  if (!s) return "";
+
+  if (/^data:/i.test(s) || /^blob:/i.test(s)) return s;
+
+  // Absolute URL
+  if (/^https?:\/\//i.test(s)) return rewriteBadAbsoluteToEnvBase(s);
+
+  // Absolute path
+  if (s.startsWith("/")) return joinBaseAndPath(ASSET_BASE, s);
+
+  // Relative path
+  return joinBaseAndPath(ASSET_BASE, "/" + s);
+};
 
 const memberLogos = ref([]);
 
-const normalizeUrl = (p) => {
-  if (!p || typeof p !== "string") return "";
-  if (
-    p.startsWith("http://") ||
-    p.startsWith("https://") ||
-    p.startsWith("data:") ||
-    p.startsWith("blob:")
-  ) {
-    return p;
-  }
-  if (p.startsWith("/")) return `${API_BASE_URL}${p}`;
-  return `${API_BASE_URL}/${p}`;
-};
-
 const fetchMemberLogos = async () => {
   try {
+    if (!API_BASE) {
+      throw new Error("Missing VITE_API_BASE_URL in .env");
+    }
+
     const res = await fetch(MEMBERS_API_URL, {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json" }
     });
     if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
 
     const json = await res.json();
-    const list = Array.isArray(json) ? json : (json?.data || json?.members || []);
+    const list = Array.isArray(json) ? json : json?.data || json?.members || [];
     const arr = Array.isArray(list) ? list : [];
 
     memberLogos.value = arr
       // where atminquery = 1
       .filter((m) => String(m?.atminquery) === "1" || m?.atminquery === true)
-      // ทำให้ idmember = 1 มาก่อน (ที่เหลือเรียงตาม idmember ปกติ)
+      // make idmember = 1 come first
       .sort((a, b) => {
         const ida = Number(a?.idmember ?? a?.id ?? a?.member_id ?? 0);
         const idb = Number(b?.idmember ?? b?.id ?? b?.member_id ?? 0);
@@ -48,20 +128,16 @@ const fetchMemberLogos = async () => {
         if (ida === 1 && idb !== 1) return -1;
         if (idb === 1 && ida !== 1) return 1;
 
-        // fallback: เรียงตัวเลขน้อยไปมาก
         return ida - idb;
       })
-      // map เป็น logos ที่ component ใช้
+      // map to logos used by component
       .map((m) => {
-        const rawSrc =
-          m?.image ?? m?.logo ?? m?.img ?? m?.photo ?? m?.path ?? m?.src ?? "";
-
+        const rawSrc = m?.image ?? m?.image_url ?? m?.logo ?? m?.img ?? m?.photo ?? m?.path ?? m?.src ?? "";
         return {
           src: normalizeUrl(rawSrc),
-          alt: m?.alt ?? m?.name ?? m?.bank_name ?? m?.title ?? "Member logo",
+          alt: m?.alt ?? m?.name ?? m?.bank_name ?? m?.title ?? "Member logo"
         };
       })
-      // เอาเฉพาะที่มีรูปจริง
       .filter((x) => !!x.src);
   } catch (err) {
     console.error("Error loading member logos:", err);
@@ -70,16 +146,10 @@ const fetchMemberLogos = async () => {
 };
 
 onMounted(() => {
-  window.scrollTo({
-    top: 0,
-    left: 0,
-    behavior: "smooth",
-  });
-
+  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   fetchMemberLogos();
 });
 </script>
-
 <template>
   <navbar
     title="ຜະລິດຕະພັນ ແລະ ການບໍລິການ"

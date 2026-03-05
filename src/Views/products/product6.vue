@@ -19,8 +19,8 @@ import { useRoute } from "vue-router";
 import { gsap } from "gsap";
 
 /** =========================
- * ✅ Load member logos from API
- * API: http://localhost:3000/api/members
+ * ✅ Load member logos from API (env only)
+ * API: {VITE_API_BASE_URL}/api/members
  * Condition: crossborderproduct = 1
  * ========================= */
 type MemberLogo = {
@@ -29,32 +29,104 @@ type MemberLogo = {
   memberId?: number;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-const MEMBERS_API_URL = `${API_BASE_URL}/api/members`;
+// Required in .env:
+//   VITE_API_BASE_URL=http://localhost:3000
+function resolveEnvBaseUrl(): string {
+  // IMPORTANT: Use direct access so Vite injects import.meta.env correctly.
+  const raw = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  return raw.replace(/\/+$/, "");
+}
+
+function normalizeBaseUrl(u: string): string {
+  return String(u || "").trim().replace(/\/+$/, "");
+}
+
+function joinBaseAndPath(baseUrl: string, path: string): string {
+  const b = normalizeBaseUrl(baseUrl);
+  const p = String(path || "");
+
+  if (!b) return p;
+
+  // Prevent double "/api"
+  if (b.endsWith("/api") && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, "");
+  }
+
+  if (!p) return b;
+  if (p.startsWith("/")) return b + p;
+  return b + "/" + p;
+}
+
+function isLoopbackHost(hostname: string) {
+  const h = String(hostname || "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0";
+}
+
+function isLikelyAssetPath(pathname: string) {
+  const p = String(pathname || "");
+  return /^\/(uploads|upload|images|files|static)\b/i.test(p) || p.includes("/uploads/") || p.includes("/images/");
+}
+
+const API_BASE = normalizeBaseUrl(resolveEnvBaseUrl());
+const ASSET_BASE = API_BASE.endsWith("/api") ? API_BASE.slice(0, -4) : API_BASE;
+const MEMBERS_API_URL = joinBaseAndPath(API_BASE, "/api/members");
 
 const memberLogos = ref<MemberLogo[]>([]);
 
-const normalizeUrl = (p: unknown) => {
-  if (!p || typeof p !== "string") return "";
-  if (
-    p.startsWith("http://") ||
-    p.startsWith("https://") ||
-    p.startsWith("data:") ||
-    p.startsWith("blob:")
-  ) {
-    return p;
+const ASSET_BASE_URL = (() => {
+  try {
+    return ASSET_BASE ? new URL(ASSET_BASE) : null;
+  } catch {
+    return null;
   }
-  if (p.startsWith("/")) return `${API_BASE_URL}${p}`;
-  return `${API_BASE_URL}/${p}`;
+})();
+
+function rewriteBadAbsoluteToEnvBase(absoluteUrl: string) {
+  try {
+    const u = new URL(absoluteUrl);
+    const fullPath = `${u.pathname || ""}${u.search || ""}`;
+
+    // Rewrite when backend returns localhost
+    if (isLoopbackHost(u.hostname)) {
+      return ASSET_BASE ? joinBaseAndPath(ASSET_BASE, fullPath) : absoluteUrl;
+    }
+
+    // Rewrite when it looks like an asset path but host mismatches env base
+    if (ASSET_BASE_URL && isLikelyAssetPath(u.pathname) && u.hostname !== ASSET_BASE_URL.hostname) {
+      return joinBaseAndPath(ASSET_BASE, fullPath);
+    }
+
+    return absoluteUrl;
+  } catch {
+    return absoluteUrl;
+  }
+}
+
+const normalizeUrl = (p: unknown) => {
+  const s = String(p ?? "").trim();
+  if (!s) return "";
+
+  if (/^data:/i.test(s) || /^blob:/i.test(s)) return s;
+
+  // Absolute URL
+  if (/^https?:\/\//i.test(s)) return rewriteBadAbsoluteToEnvBase(s);
+
+  // Absolute path
+  if (s.startsWith("/")) return joinBaseAndPath(ASSET_BASE, s);
+
+  // Relative path
+  return joinBaseAndPath(ASSET_BASE, "/" + s);
 };
 
 const getMemberId = (m: any) => Number(m?.idmember ?? m?.id ?? m?.member_id ?? 0);
 
 const fetchMemberLogos = async () => {
   try {
-    const res = await fetch(MEMBERS_API_URL, {
-      headers: { Accept: "application/json" },
-    });
+    if (!API_BASE) {
+      throw new Error("Missing VITE_API_BASE_URL in .env");
+    }
+
+    const res = await fetch(MEMBERS_API_URL, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
 
     const json = await res.json();
@@ -65,11 +137,8 @@ const fetchMemberLogos = async () => {
       .filter((m: any) => String(m?.crossborderproduct) === "1" || m?.crossborderproduct === true)
       .sort((a: any, b: any) => getMemberId(a) - getMemberId(b))
       .map((m: any) => {
-        const rawSrc =
-          m?.image ?? m?.logo ?? m?.img ?? m?.photo ?? m?.path ?? m?.src ?? "";
-
-        const alt =
-          m?.alt ?? m?.name ?? m?.bank_name ?? m?.title ?? "Member logo";
+        const rawSrc = m?.image ?? m?.image_url ?? m?.logo ?? m?.img ?? m?.photo ?? m?.path ?? m?.src ?? "";
+        const alt = m?.alt ?? m?.name ?? m?.bank_name ?? m?.title ?? "Member logo";
 
         return {
           src: normalizeUrl(rawSrc),
@@ -85,12 +154,7 @@ const fetchMemberLogos = async () => {
 };
 
 onMounted(() => {
-  window.scrollTo({
-    top: 0,
-    left: 0,
-    behavior: "smooth",
-  });
-
+  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   fetchMemberLogos();
 });
 
@@ -100,7 +164,6 @@ onMounted(() => {
 const route = useRoute();
 const videoBox = ref<HTMLElement | null>(null);
 
-// use only the param, not the whole path
 const pair = computed(() => (route.params.pair as string) || "kh-la");
 
 const currentVideoComponent = computed(() => {
@@ -124,7 +187,6 @@ const currentVideoComponent = computed(() => {
   }
 });
 
-// only animate the video box when pair changes
 watch(
   pair,
   () => {
@@ -133,18 +195,12 @@ watch(
     gsap.fromTo(
       videoBox.value,
       { opacity: 0, y: 40 },
-      {
-        opacity: 1,
-        y: 0,
-        duration: 2.0,
-        ease: "power3.out",
-      }
+      { opacity: 1, y: 0, duration: 2.0, ease: "power3.out" }
     );
   },
   { immediate: true }
 );
 </script>
-
 <template>
   <navbar
     title="ຜະລິດຕະພັນ ແລະ ການບໍລິການ"

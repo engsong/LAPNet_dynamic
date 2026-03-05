@@ -339,10 +339,10 @@ type Member = {
   websiteUrl?: string;
 };
 
-/** ✅ API shape (เพิ่ม field fintech) */
+/** API shape */
 type ApiMember = {
   idmember: number | string;
-  fintech?: number | string | null; // ✅ 0/1 จาก API
+  fintech?: number | string | null; // 0/1 from API
   BanknameLA?: string;
   BanknameEN?: string;
   LinkFB?: string | null;
@@ -378,42 +378,123 @@ const props = withDefaults(defineProps<Props>(), {
   stat2Value: 2,
   stat2Label: "Members",
   stat2Suffix: "+",
-  stat2Sub: "2 Fintech ທີເຂົ້າຮ່ວມກັບ Lao National Payment Network CO., LTD",
+  stat2Sub: "2 Fintech ທີເຂົ້າຮ່ວມກັບ Lao National Payment Network CO., LTD"
 });
 
-/** ✅ API */
-const MEMBERS_API = "http://175.0.198.10:3000/api/members";
-const API_BASE = "http://175.0.198.10:3000";
+// -------------------- Env-only API base (Vite) --------------------
+function resolveEnvBaseUrl(): string {
+  // IMPORTANT: Use direct access so Vite injects import.meta.env correctly.
+  const raw = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  return raw.replace(/\/+$/, "");
+}
 
-/** ✅ BANKS fintech=0 */
-const banksFromApi = ref<Member[]>([]);
-const banksLoading = ref(false);
-const banksError = ref<string | null>(null);
+function normalizeBaseUrl(u: string): string {
+  return String(u || "").trim().replace(/\/+$/, "");
+}
 
-/** ✅ FINTECH fintech=1 */
-const fintechFromApi = ref<Member[]>([]);
-const fintechLoading = ref(false);
-const fintechError = ref<string | null>(null);
+function joinBaseAndPath(baseUrl: string, path: string): string {
+  const b = normalizeBaseUrl(baseUrl);
+  const p = String(path || "");
 
-const resolveLogo = (u?: string | null) => {
-  if (!u) return undefined;
-  if (/^https?:\/\//i.test(u)) return u;
-  try {
-    return new URL(u, API_BASE).toString();
-  } catch {
-    return u || undefined;
+  if (!b) return p;
+
+  // Prevent double "/api"
+  // - If base ends with "/api" and path starts with "/api/..." => drop one
+  if (b.endsWith("/api") && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, "");
   }
+
+  if (!p) return b;
+  if (p.startsWith("/")) return b + p;
+  return b + "/" + p;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const h = String(hostname || "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0";
+}
+
+function isLikelyAssetPath(pathname: string): boolean {
+  const p = String(pathname || "");
+  return (
+    /^\/(uploads|upload|images|files|static)\b/i.test(p) ||
+    p.includes("/uploads/") ||
+    p.includes("/images/") ||
+    p.includes("/files/")
+  );
+}
+
+const API_BASE = normalizeBaseUrl(resolveEnvBaseUrl());
+// Asset base for images/files (strip trailing "/api" if env includes it)
+const ASSET_BASE = API_BASE.endsWith("/api") ? API_BASE.slice(0, -4) : API_BASE;
+
+// API endpoint
+const MEMBERS_API_URL = joinBaseAndPath(API_BASE, "/api/members");
+
+const ASSET_BASE_URL = (() => {
+  try {
+    return ASSET_BASE ? new URL(ASSET_BASE) : null;
+  } catch {
+    return null;
+  }
+})();
+
+function rewriteBadAbsoluteToEnvBase(absoluteUrl: string): string {
+  try {
+    const u = new URL(absoluteUrl);
+    const fullPath = `${u.pathname || ""}${u.search || ""}`;
+
+    // Rewrite when backend returns localhost (wrong outside local machine)
+    if (isLoopbackHost(u.hostname)) {
+      return ASSET_BASE ? joinBaseAndPath(ASSET_BASE, fullPath) : absoluteUrl;
+    }
+
+    // Rewrite when it looks like an asset path but host does not match our env asset base
+    if (ASSET_BASE_URL && isLikelyAssetPath(u.pathname) && u.hostname !== ASSET_BASE_URL.hostname) {
+      return joinBaseAndPath(ASSET_BASE, fullPath);
+    }
+
+    return absoluteUrl;
+  } catch {
+    return absoluteUrl;
+  }
+}
+
+const resolveLogo = (u?: string | null): string | undefined => {
+  if (!u) return undefined;
+  const s = String(u).trim();
+  if (!s) return undefined;
+
+  // Absolute URL
+  if (/^https?:\/\//i.test(s)) return rewriteBadAbsoluteToEnvBase(s);
+
+  // Absolute path from server
+  if (s.startsWith("/")) return joinBaseAndPath(ASSET_BASE, s);
+
+  // Relative path
+  return joinBaseAndPath(ASSET_BASE, "/" + s);
 };
 
 const toFlag = (v: any): number => {
-  // รองรับ 0/1, "0"/"1", true/false
+  // Supports 0/1, "0"/"1", true/false
   if (v === true) return 1;
   if (v === false) return 0;
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
 
-/** ✅ Fetch ครั้งเดียว แล้วแยกเป็น BANKS/FINTECH ตาม fintech=0/1 */
+// -------------------- API state --------------------
+/** BANKS fintech=0 */
+const banksFromApi = ref<Member[]>([]);
+const banksLoading = ref(false);
+const banksError = ref<string | null>(null);
+
+/** FINTECH fintech=1 */
+const fintechFromApi = ref<Member[]>([]);
+const fintechLoading = ref(false);
+const fintechError = ref<string | null>(null);
+
+/** Fetch once then split into BANKS/FINTECH by fintech=0/1 */
 const loadMembers = async () => {
   banksLoading.value = true;
   fintechLoading.value = true;
@@ -421,7 +502,14 @@ const loadMembers = async () => {
   fintechError.value = null;
 
   try {
-    const res = await fetch(MEMBERS_API, { method: "GET" });
+    if (!API_BASE) {
+      throw new Error("Missing VITE_API_BASE_URL in .env");
+    }
+
+    const res = await fetch(MEMBERS_API_URL, {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
 
     const json = await res.json();
@@ -431,7 +519,7 @@ const loadMembers = async () => {
       .map((raw) => ({
         raw,
         id: Number(raw?.idmember),
-        fintech: toFlag((raw as any)?.fintech),
+        fintech: toFlag((raw as any)?.fintech)
       }))
       .filter((x) => Number.isFinite(x.id))
       .sort((a, b) => a.id - b.id);
@@ -443,7 +531,7 @@ const loadMembers = async () => {
         name: String(raw.BanknameLA || raw.BanknameEN || "").trim(),
         facebookUrl: raw.LinkFB ? String(raw.LinkFB).trim() : undefined,
         websiteUrl: raw.LinkWeb ? String(raw.LinkWeb).trim() : undefined,
-        logo: resolveLogo(raw.image_url),
+        logo: resolveLogo(raw.image_url)
       }))
       .filter((m) => m.name.length > 0);
 
@@ -454,7 +542,7 @@ const loadMembers = async () => {
         name: String(raw.BanknameEN || raw.BanknameLA || "").trim(),
         facebookUrl: raw.LinkFB ? String(raw.LinkFB).trim() : undefined,
         websiteUrl: raw.LinkWeb ? String(raw.LinkWeb).trim() : undefined,
-        logo: resolveLogo(raw.image_url),
+        logo: resolveLogo(raw.image_url)
       }))
       .filter((m) => m.name.length > 0);
 
@@ -475,7 +563,7 @@ const loadMembers = async () => {
 const banksCount = computed(() => banksFromApi.value.length || props.stat1Value);
 const fintechCount = computed(() => fintechFromApi.value.length || props.stat2Value);
 
-/** ===== Refs ===== */
+// -------------------- UI refs --------------------
 const root = ref<HTMLElement | null>(null);
 const card1 = ref<HTMLElement | null>(null);
 const card2 = ref<HTMLElement | null>(null);
@@ -497,7 +585,7 @@ const animateCount = (el: HTMLElement, target: number) => {
     },
     onComplete: () => {
       el.textContent = Math.round(target).toLocaleString();
-    },
+    }
   });
 };
 
@@ -508,7 +596,7 @@ const initials = (name: string) => {
   return (a + b).toUpperCase();
 };
 
-/** Overlay state */
+// -------------------- Overlay state --------------------
 const overlayOpen = ref(false);
 const overlayType = ref<OverlayType>("banks");
 const searchText = ref("");
@@ -519,7 +607,7 @@ const memberGridEl = ref<HTMLElement | null>(null);
 
 let overlayTl: gsap.core.Timeline | null = null;
 
-/** Fix overlay “layout jump” when locking scroll */
+/** Fix overlay layout jump when locking scroll */
 let prevBodyPaddingRight = "";
 const lockScroll = () => {
   const scrollbar = window.innerWidth - document.documentElement.clientWidth;
@@ -576,18 +664,11 @@ const animateMembers = () => {
   gsap.fromTo(
     cards,
     { autoAlpha: 0, y: 10 },
-    {
-      autoAlpha: 1,
-      y: 0,
-      duration: 0.35,
-      ease: "power3.out",
-      stagger: 0.025,
-      overwrite: true,
-    }
+    { autoAlpha: 1, y: 0, duration: 0.35, ease: "power3.out", stagger: 0.025, overwrite: true }
   );
 };
 
-// hover actions (GSAP)
+// Hover actions
 const onMemberEnter = (e: MouseEvent) => {
   const card = e.currentTarget as HTMLElement | null;
   if (!card) return;
@@ -597,14 +678,7 @@ const onMemberEnter = (e: MouseEvent) => {
 
   gsap.killTweensOf(actions);
   gsap.set(actions, { pointerEvents: "auto" });
-  gsap.to(actions, {
-    autoAlpha: 1,
-    y: 0,
-    scale: 1,
-    duration: 0.18,
-    ease: "power3.out",
-    overwrite: true,
-  });
+  gsap.to(actions, { autoAlpha: 1, y: 0, scale: 1, duration: 0.18, ease: "power3.out", overwrite: true });
 };
 
 const onMemberLeave = (e: MouseEvent) => {
@@ -624,7 +698,7 @@ const onMemberLeave = (e: MouseEvent) => {
     overwrite: true,
     onComplete: () => {
       if (actions) gsap.set(actions, { pointerEvents: "none" });
-    },
+    }
   });
 };
 
@@ -647,9 +721,7 @@ watch(overlayOpen, async (isOpen) => {
     await nextTick();
 
     overlayTl?.kill();
-    overlayTl = gsap.timeline({
-      defaults: { ease: "power3.out" },
-    });
+    overlayTl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
     const panel = overlayPanel.value;
     const back = overlayBackdrop.value;
@@ -682,7 +754,7 @@ watch(overlayOpen, async (isOpen) => {
   }
 });
 
-/** ✅ If API finishes after section animation, update the counts */
+/** If API finishes after section animation, update counts */
 watch(
   () => banksFromApi.value.length,
   (len) => {
@@ -741,8 +813,10 @@ onBeforeUnmount(() => {
   overlayTl?.kill();
   overlayTl = null;
 });
-</script>
 
+// Expose to template
+// (script setup auto-exposes, but keeping names here for clarity via TS inference)
+</script>
 <style scoped>
 /* ====== Layout ====== */
 .why {

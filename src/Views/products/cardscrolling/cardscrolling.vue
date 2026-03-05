@@ -103,7 +103,7 @@ const props = defineProps({
     type: String,
     default: "Member Cards",
   },
-  // ✅ เก็บไว้เผื่อ parent ส่งมา แต่เราจะไม่ใช้ใน UI แล้ว
+  // kept for backward compat (not used)
   badgeDescription: {
     type: String,
     default: "",
@@ -111,26 +111,95 @@ const props = defineProps({
 });
 
 /** =========================
- *  ✅ Load card logos from API
- *  - API: http://localhost:3000/api/members
+ *  ✅ Load card logos from API (env only)
+ *  - API: {VITE_API_BASE_URL}/api/members
  *  - where atmcashwithdraw = 1
  *  - idmember = 1 show on top
  * ========================= */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-const MEMBERS_API_URL = `${API_BASE_URL}/api/members`;
+function resolveEnvBaseUrl() {
+  // IMPORTANT: Use direct access so Vite injects import.meta.env correctly.
+  const raw = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  return raw.replace(/\/+$/, "");
+}
+
+function normalizeBaseUrl(u) {
+  return String(u || "").trim().replace(/\/+$/, "");
+}
+
+function joinBaseAndPath(baseUrl, path) {
+  const b = normalizeBaseUrl(baseUrl);
+  const p = String(path || "");
+
+  if (!b) return p;
+
+  // Prevent double "/api"
+  // - If base ends with "/api" and path starts with "/api/..." => drop one
+  if (b.endsWith("/api") && /^\/api(\/|$)/i.test(p)) {
+    return b + p.replace(/^\/api/i, "");
+  }
+
+  if (!p) return b;
+  if (p.startsWith("/")) return b + p;
+  return b + "/" + p;
+}
+
+function isLoopbackHost(hostname) {
+  const h = String(hostname || "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0";
+}
+
+function isLikelyAssetPath(pathname) {
+  const p = String(pathname || "");
+  return /^\/(uploads|upload|images|files|static)\b/i.test(p) || p.includes("/uploads/") || p.includes("/images/");
+}
+
+const API_BASE = normalizeBaseUrl(resolveEnvBaseUrl());
+const ASSET_BASE = API_BASE.endsWith("/api") ? API_BASE.slice(0, -4) : API_BASE;
+const MEMBERS_API_URL = joinBaseAndPath(API_BASE, "/api/members");
+
+const ASSET_BASE_URL = (() => {
+  try {
+    return ASSET_BASE ? new URL(ASSET_BASE) : null;
+  } catch {
+    return null;
+  }
+})();
+
+function rewriteBadAbsoluteToEnvBase(absoluteUrl) {
+  try {
+    const u = new URL(absoluteUrl);
+    const fullPath = `${u.pathname || ""}${u.search || ""}`;
+
+    // Rewrite when backend returns localhost (wrong outside local machine)
+    if (isLoopbackHost(u.hostname)) {
+      return ASSET_BASE ? joinBaseAndPath(ASSET_BASE, fullPath) : absoluteUrl;
+    }
+
+    // Rewrite when it looks like an asset path but host does not match our env asset base
+    if (ASSET_BASE_URL && isLikelyAssetPath(u.pathname) && u.hostname !== ASSET_BASE_URL.hostname) {
+      return joinBaseAndPath(ASSET_BASE, fullPath);
+    }
+
+    return absoluteUrl;
+  } catch {
+    return absoluteUrl;
+  }
+}
 
 const normalizeUrl = (p) => {
-  if (!p || typeof p !== "string") return "";
-  if (
-    p.startsWith("http://") ||
-    p.startsWith("https://") ||
-    p.startsWith("data:") ||
-    p.startsWith("blob:")
-  ) {
-    return p;
-  }
-  if (p.startsWith("/")) return `${API_BASE_URL}${p}`;
-  return `${API_BASE_URL}/${p}`;
+  const s = String(p || "").trim();
+  if (!s) return "";
+
+  if (/^data:/i.test(s) || /^blob:/i.test(s)) return s;
+
+  // Absolute URL
+  if (/^https?:\/\//i.test(s)) return rewriteBadAbsoluteToEnvBase(s);
+
+  // Absolute path
+  if (s.startsWith("/")) return joinBaseAndPath(ASSET_BASE, s);
+
+  // Relative path
+  return joinBaseAndPath(ASSET_BASE, "/" + s);
 };
 
 const getMemberId = (m) => Number(m?.idmember ?? m?.id ?? m?.member_id ?? 0);
@@ -141,8 +210,7 @@ const cards = ref([]);
 const mapMemberToCard = (m) => {
   const id = getMemberId(m);
 
-  const rawLogo =
-    m?.image ?? m?.logo ?? m?.img ?? m?.photo ?? m?.path ?? m?.src ?? "";
+  const rawLogo = m?.image ?? m?.image_url ?? m?.logo ?? m?.img ?? m?.photo ?? m?.path ?? m?.src ?? "";
 
   const network =
     m?.network ??
@@ -151,23 +219,25 @@ const mapMemberToCard = (m) => {
     m?.name ??
     m?.bank_name ??
     m?.title ??
-    `Commercial Bank`.trim();
+    "Commercial Bank";
 
   return {
-    id: 0, // จะถูก override เป็น No ตอน map ด้านล่าง
+    id: 0, // will be overridden
     holder: "xxxxxxx xxxxxxx",
     number: `**** **** **** ${String((id || 0) % 10000).padStart(4, "0")}`,
     expiry: "08/27",
-    network,
+    network: String(network).trim(),
     logo: normalizeUrl(rawLogo),
   };
 };
 
 const fetchMemberCards = async () => {
   try {
-    const res = await fetch(MEMBERS_API_URL, {
-      headers: { Accept: "application/json" },
-    });
+    if (!API_BASE) {
+      throw new Error("Missing VITE_API_BASE_URL in .env");
+    }
+
+    const res = await fetch(MEMBERS_API_URL, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
 
     const json = await res.json();
@@ -189,7 +259,7 @@ const fetchMemberCards = async () => {
         const card = mapMemberToCard(m);
         return {
           ...card,
-          id: index + 1, // ✅ No: 1..N
+          id: index + 1, // No: 1..N
           no: index + 1,
           memberId: getMemberId(m),
         };
@@ -201,10 +271,10 @@ const fetchMemberCards = async () => {
   }
 };
 
-/** ✅ นับจำนวนธนาคารจากข้อมูล API (หลัง filter แล้ว) */
+/** ✅ Count members from API (after filter) */
 const memberCount = computed(() => cards.value.length);
 
-/** ✅ สร้างข้อความ badgeDescription แบบ dynamic */
+/** ✅ Dynamic badge description */
 const computedBadgeDescription = computed(() => {
   const count = memberCount.value || 0;
   return `ທະນາຄານສະມາຊິກທັງຫມົດທີເຂົ້າຮ່ວມ : ${count} ທະນາຄານ`;
