@@ -1,233 +1,505 @@
 <template>
-  <div class="slideshow-container">
-    <!-- IMAGES -->
-    <img
-      v-for="(img, i) in images"
-      :key="i"
-      :src="img"
-      class="slide-img"
-      :ref="(el) => (imageRefs[i] = el)"
-      alt=""
-      draggable="false"
-    />
-
-    <!-- Modern arrows -->
-    <button class="nav nav--prev" type="button" @click="prevImage" aria-label="Previous slide">
-      <svg viewBox="0 0 24 24" class="icon" aria-hidden="true">
-        <path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-    </button>
-
-    <button class="nav nav--next" type="button" @click="nextImage" aria-label="Next slide">
-      <svg viewBox="0 0 24 24" class="icon" aria-hidden="true">
-        <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-    </button>
-
-    <!-- Side dots pagination -->
-    <div class="pagination-bottom" aria-label="Slide pagination">
-      <button
-        v-for="(_, i) in images"
-        :key="i"
-        class="dot"
-        :class="{ active: i === currentIndex }"
-        type="button"
-        @click="goTo(i)"
-        :aria-label="`Go to slide ${i + 1}`"
-        :aria-current="i === currentIndex ? 'true' : 'false'"
-      />
-    </div>
-  </div>
+  <div ref="containerRef" class="globe-root"></div>
 </template>
 
-<script setup>
-import { ref, onBeforeUnmount, onMounted } from "vue";
-import gsap from "gsap";
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  ACESFilmicToneMapping,
+  AmbientLight,
+  Color,
+  DirectionalLight,
+  Fog,
+  PerspectiveCamera,
+  PointLight,
+  Scene,
+  SRGBColorSpace,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+} from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import ThreeGlobe from "three-globe";
+import countries from "../../../data/globe.json";
 
-const images = ref([
-  "/swiper/1.png",
-  "/swiper/2.png",
-  "/swiper/3.png",
-  "/swiper/4.png",
-  "/swiper/5.png",
-]);
+const RING_PROPAGATION_SPEED = 1.9;
+const DEFAULT_ASPECT = 1.2;
+const CAMERA_Z = 300;
 
-const imageRefs = []; // DOM refs
-const currentIndex = ref(0);
-let intervalID = null;
-
-const fadeTo = (nextIndex) => {
-  if (nextIndex === currentIndex.value) return;
-
-  const current = imageRefs[currentIndex.value];
-  const next = imageRefs[nextIndex];
-  if (!current || !next) return;
-
-  // ensure next is above
-  gsap.set(next, { zIndex: 2 });
-  gsap.set(current, { zIndex: 1 });
-
-  gsap.to(current, { opacity: 0, duration: 0.9, ease: "power2.out" });
-  gsap.to(next, { opacity: 1, duration: 0.9, ease: "power2.out" });
-
-  currentIndex.value = nextIndex;
+type Position = {
+  order: number;
+  startLat: number;
+  startLng: number;
+  endLat: number;
+  endLng: number;
+  arcAlt: number;
+  color: string;
 };
 
-const startAutoPlay = () => {
-  clearInterval(intervalID);
-  intervalID = setInterval(() => {
-    const next = (currentIndex.value + 1) % images.value.length;
-    fadeTo(next);
-  }, 5000);
+export type GlobeConfig = {
+  pointSize?: number;
+  globeColor?: string;
+  showAtmosphere?: boolean;
+  atmosphereColor?: string;
+  atmosphereAltitude?: number;
+  emissive?: string;
+  emissiveIntensity?: number;
+  shininess?: number;
+  polygonColor?: string;
+  ambientLight?: string;
+  directionalLeftLight?: string;
+  directionalTopLight?: string;
+  pointLight?: string;
+  arcTime?: number;
+  arcLength?: number;
+  rings?: number;
+  maxRings?: number;
+  initialPosition?: {
+    lat: number;
+    lng: number;
+  };
+  autoRotate?: boolean;
+  autoRotateSpeed?: number;
 };
 
-const goTo = (i) => {
-  startAutoPlay();
-  fadeTo(i);
+interface WorldProps {
+  globeConfig: GlobeConfig;
+  data: Position[];
+}
+
+type GlobeArc = {
+  order: number;
+  startLat: number;
+  startLng: number;
+  endLat: number;
+  endLng: number;
+  arcAlt: number;
+  color: string;
+  dashInitialGap: number;
+  ringColor: string;
 };
 
-const nextImage = () => {
-  startAutoPlay();
-  const next = (currentIndex.value + 1) % images.value.length;
-  fadeTo(next);
+type GlobePoint = {
+  lat: number;
+  lng: number;
+  color: string;
+  size: number;
 };
 
-const prevImage = () => {
-  startAutoPlay();
-  const prev = (currentIndex.value - 1 + images.value.length) % images.value.length;
-  fadeTo(prev);
+type CountryFeatureCollection = {
+  features?: Record<string, unknown>[];
 };
+
+const props = defineProps<WorldProps>();
+const containerRef = ref<HTMLDivElement | null>(null);
+
+const mergedConfig = computed(() => ({
+  pointSize: 0.38,
+  atmosphereColor: "#67e8f9",
+  showAtmosphere: true,
+  atmosphereAltitude: 0.17,
+  polygonColor: "rgba(110,168,255,0.14)",
+  globeColor: "#071126",
+  emissive: "#0b1733",
+  emissiveIntensity: 0.28,
+  shininess: 1.1,
+  arcTime: 4200,
+  arcLength: 0.16,
+  rings: 1,
+  maxRings: 4.5,
+  ambientLight: "#b7d8ff",
+  directionalLeftLight: "#6ee7ff",
+  directionalTopLight: "#9f7aea",
+  pointLight: "#7dd3fc",
+  autoRotate: true,
+  autoRotateSpeed: 0.55,
+  ...props.globeConfig,
+}));
+
+const countryFeatures = ((countries as CountryFeatureCollection).features ?? []) as object[];
+
+let scene: Scene | null = null;
+let camera: PerspectiveCamera | null = null;
+let renderer: WebGLRenderer | null = null;
+let controls: OrbitControls | null = null;
+let globe: ThreeGlobe | null = null;
+
+let ambientLightRef: AmbientLight | null = null;
+let directionalLeftLightRef: DirectionalLight | null = null;
+let directionalTopLightRef: DirectionalLight | null = null;
+let pointLightRef: PointLight | null = null;
+let pointLightBackRef: PointLight | null = null;
+
+let animationFrameId = 0;
+let ringsIntervalId: number | null = null;
+
+function safeNumber(value: unknown, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function sanitizeArcList(input: Position[]) {
+  return (Array.isArray(input) ? input : [])
+    .map((item, index): GlobeArc => ({
+      order: safeNumber(item?.order, index),
+      startLat: safeNumber(item?.startLat),
+      startLng: safeNumber(item?.startLng),
+      endLat: safeNumber(item?.endLat),
+      endLng: safeNumber(item?.endLng),
+      arcAlt: safeNumber(item?.arcAlt, 0.28),
+      color: String(item?.color || "rgba(34,211,238,0.88)"),
+      dashInitialGap: index * 0.28,
+      ringColor: String(item?.color || "rgba(34,211,238,0.45)"),
+    }))
+    .filter(
+      (item) =>
+        Number.isFinite(item.startLat) &&
+        Number.isFinite(item.startLng) &&
+        Number.isFinite(item.endLat) &&
+        Number.isFinite(item.endLng),
+    );
+}
+
+function buildSparseWorldPoints(arcs: GlobeArc[]) {
+  const cfg = mergedConfig.value;
+  const sparsePoints: GlobePoint[] = [];
+  const latBands = [-54, -26, 0, 24, 48];
+  const lngStep = 72;
+
+  latBands.forEach((lat, rowIndex) => {
+    for (let lng = -180; lng < 180; lng += lngStep) {
+      sparsePoints.push({
+        lat,
+        lng: lng + (rowIndex % 2 === 0 ? 10 : -12),
+        color: "rgba(125,211,252,0.18)",
+        size: cfg.pointSize,
+      });
+    }
+  });
+
+  const endpointPoints = arcs
+    .flatMap((arc) => [
+      {
+        lat: arc.startLat,
+        lng: arc.startLng,
+        color: "rgba(103,232,249,0.68)",
+        size: cfg.pointSize * 1.4,
+      },
+      {
+        lat: arc.endLat,
+        lng: arc.endLng,
+        color: "rgba(192,132,252,0.58)",
+        size: cfg.pointSize * 1.25,
+      },
+    ])
+    .filter(
+      (value, index, array) =>
+        array.findIndex((item) => item.lat === value.lat && item.lng === value.lng) === index,
+    )
+    .slice(0, 14);
+
+  return [...sparsePoints, ...endpointPoints];
+}
+
+function initScene() {
+  if (!containerRef.value || scene) return;
+
+  const el = containerRef.value;
+  const width = el.clientWidth || 800;
+  const height = el.clientHeight || Math.round(width / DEFAULT_ASPECT);
+
+  scene = new Scene();
+  scene.fog = new Fog(0x071126, 540, 1750);
+
+  camera = new PerspectiveCamera(42, width / height, 180, 1800);
+  camera.position.set(0, 0, CAMERA_Z);
+
+  renderer = new WebGLRenderer({
+    antialias: true,
+    alpha: true,
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(width, height);
+  renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  renderer.outputColorSpace = SRGBColorSpace;
+
+  el.appendChild(renderer.domElement);
+
+  ambientLightRef = new AmbientLight(mergedConfig.value.ambientLight, 0.9);
+
+  directionalLeftLightRef = new DirectionalLight(mergedConfig.value.directionalLeftLight, 1.45);
+  directionalLeftLightRef.position.copy(new Vector3(-420, 140, 420));
+
+  directionalTopLightRef = new DirectionalLight(mergedConfig.value.directionalTopLight, 1.25);
+  directionalTopLightRef.position.copy(new Vector3(120, 520, 160));
+
+  pointLightRef = new PointLight(mergedConfig.value.pointLight, 1.35, 0, 2.2);
+  pointLightRef.position.copy(new Vector3(-210, 220, 300));
+
+  pointLightBackRef = new PointLight("#38bdf8", 0.95, 0, 2.5);
+  pointLightBackRef.position.copy(new Vector3(260, -180, -220));
+
+  scene.add(ambientLightRef);
+  scene.add(directionalLeftLightRef);
+  scene.add(directionalTopLightRef);
+  scene.add(pointLightRef);
+  scene.add(pointLightBackRef);
+
+  globe = new ThreeGlobe({ waitForGlobeReady: true, animateIn: true });
+  globe.rendererSize(new Vector2(width, height));
+  scene.add(globe);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enablePan = false;
+  controls.enableZoom = false;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.minDistance = CAMERA_Z;
+  controls.maxDistance = CAMERA_Z;
+  controls.autoRotate = mergedConfig.value.autoRotate;
+  controls.autoRotateSpeed = mergedConfig.value.autoRotateSpeed;
+  controls.minPolarAngle = Math.PI / 3.65;
+  controls.maxPolarAngle = Math.PI - Math.PI / 3.15;
+
+  applyMaterial();
+  applyLights();
+  buildGlobeData();
+  startRingsAnimation();
+  handleResize();
+  animate();
+
+  window.addEventListener("resize", handleResize);
+}
+
+function applyMaterial() {
+  if (!globe) return;
+
+  const material = globe.globeMaterial() as unknown as {
+    color: Color;
+    emissive: Color;
+    emissiveIntensity: number;
+    shininess: number;
+  };
+
+  material.color = new Color(mergedConfig.value.globeColor);
+  material.emissive = new Color(mergedConfig.value.emissive);
+  material.emissiveIntensity = mergedConfig.value.emissiveIntensity;
+  material.shininess = mergedConfig.value.shininess;
+}
+
+function applyLights() {
+  if (
+    !ambientLightRef ||
+    !directionalLeftLightRef ||
+    !directionalTopLightRef ||
+    !pointLightRef ||
+    !pointLightBackRef
+  ) {
+    return;
+  }
+
+  ambientLightRef.color = new Color(mergedConfig.value.ambientLight);
+  directionalLeftLightRef.color = new Color(mergedConfig.value.directionalLeftLight);
+  directionalTopLightRef.color = new Color(mergedConfig.value.directionalTopLight);
+  pointLightRef.color = new Color(mergedConfig.value.pointLight);
+  pointLightBackRef.color = new Color("#38bdf8");
+
+  if (controls) {
+    controls.autoRotate = mergedConfig.value.autoRotate;
+    controls.autoRotateSpeed = mergedConfig.value.autoRotateSpeed;
+  }
+}
+
+function buildGlobeData() {
+  if (!globe) return;
+
+  const cfg = mergedConfig.value;
+  const arcs = sanitizeArcList(props.data);
+  const sparsePoints = buildSparseWorldPoints(arcs);
+
+  globe
+    .hexPolygonsData(countryFeatures)
+    .hexPolygonResolution(3)
+    .hexPolygonMargin(0.55)
+    .showAtmosphere(cfg.showAtmosphere)
+    .atmosphereColor(cfg.atmosphereColor)
+    .atmosphereAltitude(cfg.atmosphereAltitude)
+    .hexPolygonColor(() => cfg.polygonColor);
+
+  globe
+    .arcsData(arcs as never[])
+    .arcStartLat("startLat")
+    .arcStartLng("startLng")
+    .arcEndLat("endLat")
+    .arcEndLng("endLng")
+    .arcColor("color")
+    .arcAltitude("arcAlt")
+    .arcStroke(0.75)
+    .arcDashLength(safeNumber(cfg.arcLength, 0.16))
+    .arcDashGap(1.8)
+    .arcDashInitialGap("dashInitialGap")
+    .arcDashAnimateTime(safeNumber(cfg.arcTime, 4200))
+    .arcsTransitionDuration(0);
+
+  globe
+    .pointsData(sparsePoints as never[])
+    .pointColor("color")
+    .pointAltitude(0.006)
+    .pointRadius((point: object) => safeNumber((point as GlobePoint).size, cfg.pointSize))
+    .pointsMerge(true);
+
+  globe
+    .ringsData([])
+    .ringColor("ringColor")
+    .ringMaxRadius(cfg.maxRings)
+    .ringPropagationSpeed(RING_PROPAGATION_SPEED)
+    .ringRepeatPeriod(Math.max(1400, safeNumber(cfg.arcTime, 4200) * 0.62));
+}
+
+function startRingsAnimation() {
+  stopRingsAnimation();
+
+  if (!globe) return;
+
+  const arcs = sanitizeArcList(props.data);
+  if (!arcs.length) return;
+
+  globe.ringsData(
+    arcs.slice(0, Math.min(arcs.length, 2)).map((item) => ({
+      lat: item.startLat,
+      lng: item.startLng,
+      ringColor: "rgba(103,232,249,0.42)",
+    })),
+  );
+
+  ringsIntervalId = window.setInterval(() => {
+    if (!globe) return;
+
+    const randomIndexes = genRandomNumbers(
+      0,
+      arcs.length,
+      Math.max(1, Math.min(3, Math.ceil(arcs.length / 4))),
+    );
+
+    const ringsData = arcs
+      .filter((_, index) => randomIndexes.includes(index))
+      .map((item, index) => ({
+        lat: index % 2 === 0 ? item.startLat : item.endLat,
+        lng: index % 2 === 0 ? item.startLng : item.endLng,
+        ringColor: index % 2 === 0 ? "rgba(103,232,249,0.42)" : "rgba(192,132,252,0.36)",
+      }));
+
+    globe.ringsData(ringsData);
+  }, 2800);
+}
+
+function stopRingsAnimation() {
+  if (ringsIntervalId !== null) {
+    window.clearInterval(ringsIntervalId);
+    ringsIntervalId = null;
+  }
+}
+
+function animate() {
+  if (!renderer || !scene || !camera) return;
+
+  controls?.update();
+  renderer.render(scene, camera);
+  animationFrameId = window.requestAnimationFrame(animate);
+}
+
+function handleResize() {
+  if (!containerRef.value || !renderer || !camera) return;
+
+  const width = containerRef.value.clientWidth || 800;
+  const height = containerRef.value.clientHeight || Math.round(width / DEFAULT_ASPECT);
+
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(width, height);
+  globe?.rendererSize(new Vector2(width, height));
+}
+
+function disposeScene() {
+  stopRingsAnimation();
+  window.removeEventListener("resize", handleResize);
+
+  if (animationFrameId) {
+    window.cancelAnimationFrame(animationFrameId);
+  }
+
+  controls?.dispose();
+  renderer?.dispose();
+
+  if (renderer?.domElement && containerRef.value?.contains(renderer.domElement)) {
+    containerRef.value.removeChild(renderer.domElement);
+  }
+
+  scene = null;
+  camera = null;
+  renderer = null;
+  controls = null;
+  globe = null;
+  ambientLightRef = null;
+  directionalLeftLightRef = null;
+  directionalTopLightRef = null;
+  pointLightRef = null;
+  pointLightBackRef = null;
+}
 
 onMounted(() => {
-  // initial setup
-  gsap.set(imageRefs, { opacity: 0, zIndex: 0 });
-  gsap.set(imageRefs[0], { opacity: 1, zIndex: 1 });
-
-  startAutoPlay();
+  initScene();
 });
 
 onBeforeUnmount(() => {
-  clearInterval(intervalID);
+  disposeScene();
 });
+
+watch(
+  () => props.globeConfig,
+  () => {
+    applyMaterial();
+    applyLights();
+    buildGlobeData();
+    startRingsAnimation();
+  },
+  { deep: true },
+);
+
+watch(
+  () => props.data,
+  () => {
+    buildGlobeData();
+    startRingsAnimation();
+  },
+  { deep: true },
+);
+
+function genRandomNumbers(min: number, max: number, count: number) {
+  const arr: number[] = [];
+  const safeCount = Math.max(0, Math.min(count, max - min));
+
+  while (arr.length < safeCount) {
+    const randomValue = Math.floor(Math.random() * (max - min)) + min;
+    if (!arr.includes(randomValue)) {
+      arr.push(randomValue);
+    }
+  }
+
+  return arr;
+}
 </script>
 
 <style scoped>
-/* Dark blue modern gradient */
-.slideshow-container {
-  width: 100%;
-  height: 60vh;
-  position: relative;
-  overflow: hidden;
-
-
-  background:
-    radial-gradient(900px 600px at 70% 15%, rgba(96,165,250,.22), transparent 55%),
-    radial-gradient(800px 520px at 30% 85%, rgba(167,139,250,.18), transparent 55%),
-    linear-gradient(180deg, #03081a, #01030f);
-}
-
-.slide-img {
+.globe-root {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: top;
-  position: absolute;
-  top: 0;
-  left: 0;
-  opacity: 0;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-/* Modern arrows */
-.nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 46px;
-  height: 46px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.10);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: rgba(234,241,255,.95);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  box-shadow: 0 18px 50px rgba(0,0,0,.45);
-  transition: transform .18s ease, background .18s ease, opacity .18s ease;
-  z-index: 5;
-}
-
-.nav:hover {
-  background: rgba(255,255,255,.14);
-  transform: translateY(-50%) scale(1.04);
-}
-
-.nav:active {
-  transform: translateY(-50%) scale(.98);
-}
-
-.nav:focus-visible {
-  outline: 2px solid rgba(96,165,250,.65);
-  outline-offset: 2px;
-}
-
-.nav--prev { left: 14px; }
-.nav--next { right: 14px; }
-
-.icon { width: 22px; height: 22px; }
-
-/* Bottom center dots pagination */
-.pagination-bottom {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.06);
-  border: 1px solid rgba(255,255,255,.12);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  z-index: 6;
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.22);
-  background: rgba(234,241,255,.28);
-  cursor: pointer;
-  transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
-}
-
-.dot:hover {
-  transform: scale(1.15);
-  background: rgba(234,241,255,.42);
-}
-
-.dot.active {
-  background: linear-gradient(135deg, rgba(96,165,250,.95), rgba(167,139,250,.95));
-  box-shadow:
-    0 0 0 6px rgba(96,165,250,.14),
-    0 14px 40px rgba(96,165,250,.18);
-  border-color: rgba(255,255,255,.35);
-}
-
-/* Make it mobile friendly */
-@media (max-width: 640px) {
-  .pagination-bottom {
-    bottom: 10px;
-    gap: 8px;
-    padding: 8px 10px;
-  }
-.nav { width: 42px; height: 42px; }
+  min-height: 600px;
+  position: relative;
+  overflow: hidden;
 }
 </style>

@@ -200,6 +200,92 @@ watch(
   },
   { immediate: true }
 );
+
+const globeConfig = {
+  globeColor: "#071126",
+  emissive: "#0b1733",
+  emissiveIntensity: 0.28,
+  shininess: 1.1,
+  atmosphereColor: "#67e8f9",
+  showAtmosphere: true,
+  atmosphereAltitude: 0.17,
+  polygonColor: "rgba(110,168,255,0.14)",
+  ambientLight: "#b7d8ff",
+  directionalLeftLight: "#6ee7ff",
+  directionalTopLight: "#9f7aea",
+  pointLight: "#7dd3fc",
+  arcTime: 4200,
+  arcLength: 0.16,
+  rings: 1,
+  maxRings: 4.5,
+  autoRotate: true,
+  autoRotateSpeed: 0.55,
+};
+
+const baseHubByPair: Record<string, GlobePoint> = {
+  "kh-la": { lat: 11.5564, lng: 104.9282 },
+  "la-kh": { lat: 17.9757, lng: 102.6331 },
+  "th-la": { lat: 13.7563, lng: 100.5018 },
+  "la-th": { lat: 17.9757, lng: 102.6331 },
+  "vn-la": { lat: 21.0278, lng: 105.8342 },
+  "la-vn": { lat: 17.9757, lng: 102.6331 },
+  "cn-la": { lat: 25.0389, lng: 102.7183 },
+  "la-cn": { lat: 17.9757, lng: 102.6331 },
+};
+
+const neonPalette = [
+  "rgba(34,211,238,0.92)",
+  "rgba(125,211,252,0.9)",
+  "rgba(103,232,249,0.88)",
+  "rgba(192,132,252,0.88)",
+  "rgba(96,165,250,0.9)",
+  "rgba(45,212,191,0.88)",
+];
+
+const worldTargets: GlobePoint[] = [
+  { lat: 17.9757, lng: 102.6331 },
+  { lat: 13.7563, lng: 100.5018 },
+  { lat: 11.5564, lng: 104.9282 },
+  { lat: 21.0278, lng: 105.8342 },
+  { lat: 1.3521, lng: 103.8198 },
+  { lat: 35.6762, lng: 139.6503 },
+  { lat: 25.2048, lng: 55.2708 },
+  { lat: 50.1109, lng: 8.6821 },
+  { lat: 51.5072, lng: -0.1276 },
+  { lat: 40.7128, lng: -74.006 },
+  { lat: -33.8688, lng: 151.2093 },
+  { lat: -23.5505, lng: -46.6333 },
+];
+
+const arcData = computed<GlobeArcInput[]>(() => {
+  const hub = baseHubByPair[pair.value] ?? { lat: 17.9757, lng: 102.6331 };
+  const forwardRoutes = worldTargets
+    .filter((target) => !(target.lat === hub.lat && target.lng === hub.lng))
+    .slice(0, 8)
+    .map((target, index) => ({
+      order: index + 1,
+      startLat: hub.lat,
+      startLng: hub.lng,
+      endLat: target.lat,
+      endLng: target.lng,
+      arcAlt: 0.18 + ((index % 4) * 0.06),
+      color: neonPalette[index % neonPalette.length],
+    }));
+
+  const returnRoutes = worldTargets
+    .slice(2, 6)
+    .map((target, index) => ({
+      order: forwardRoutes.length + index + 1,
+      startLat: target.lat,
+      startLng: target.lng,
+      endLat: hub.lat,
+      endLng: hub.lng,
+      arcAlt: 0.16 + ((index % 3) * 0.05),
+      color: neonPalette[(index + 3) % neonPalette.length],
+    }));
+
+  return [...forwardRoutes, ...returnRoutes];
+});
 </script>
 <template>
   <navbar
@@ -221,7 +307,7 @@ watch(
   </div>
 
   <div class="slidecontainer">
-    <product6swiper />
+    <product6swiper :globe-config="globeConfig" :data="arcData" />
   </div>
 
   <div class="crossborderinfo">
@@ -310,7 +396,7 @@ watch(
 
 .slidecontainer {
   width: 100%;
-  height: 54vh;
+  height: 79vh;
 }
 
 .footermemberproduct1 {
