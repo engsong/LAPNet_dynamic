@@ -2,7 +2,8 @@
   <router-view></router-view>
 
   <!-- ✅ Visitor Eye (bottom-left) + overlay panel -->
-  <!-- <teleport to="body">
+  <!--
+  <teleport to="body">
     <div class="viewerWrap" ref="viewerWrapRef">
       <div class="viewerCard" :class="{ open: viewerOpen }">
         <div class="viewerGlow" aria-hidden="true"></div>
@@ -46,12 +47,13 @@
         </div>
       </div>
     </div>
-  </teleport> -->
+  </teleport>
+  -->
 </template>
 
 <style scoped>
 /* =========================
-   ✅ Bottom-left Visitor Eye
+   Bottom-left Visitor Eye
    Glassmorphism + Modern Blue
    ========================= */
 .viewerWrap {
@@ -64,7 +66,7 @@
 
 .viewerCard {
   pointer-events: auto;
-  width: 68px; /* ✅ closed: icon only */
+  width: 68px; /* closed: icon only */
   border-radius: 18px;
   overflow: hidden;
 
@@ -94,7 +96,7 @@
   pointer-events: none;
 }
 
-/* ✅ Header behavior
+/* Header behavior:
    - closed: center icon only
    - open: icon + title(right) + caret
 */
@@ -164,7 +166,7 @@
   transform: translateY(1px) rotate(0deg);
 }
 
-/* panel animated by GSAP */
+/* Panel is animated by GSAP */
 .viewerPanel {
   border-top: 1px solid rgba(56, 189, 248, 0.22);
 }
@@ -227,107 +229,70 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.06);
 }
-@media (max-width:768px) {
-  .viewerWrap{
+
+@media (max-width: 768px) {
+  .viewerWrap {
     display: none;
   }
 }
 </style>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue"
-import { gsap } from "gsap"
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { gsap } from "gsap";
 
-/* ✅ APIs */
-const VISITOR_1D_URL = "http://localhost:3000/api/visitor/stats?range=1d"
-const VISITOR_7D_URL = "http://localhost:3000/api/visitor/stats?range=7d"
+/* Visitor counts (static only; API fetch removed) */
+const viewerToday = ref(0);
+const viewerWeek = ref(0);
 
-/* ✅ visitor counts */
-const viewerToday = ref(0)
-const viewerWeek = ref(0)
+const viewerOpen = ref(false);
 
-const viewerOpen = ref(false)
-
-const viewerWrapRef = ref(null)
-const viewerPanelRef = ref(null)
-const eyeIconRef = ref(null)
+const viewerWrapRef = ref(null);
+const viewerPanelRef = ref(null);
+const eyeIconRef = ref(null);
 
 function toggleViewer() {
-  viewerOpen.value = !viewerOpen.value
+  viewerOpen.value = !viewerOpen.value;
 }
+
 function closeViewer() {
-  viewerOpen.value = false
+  viewerOpen.value = false;
 }
 
+/* Refresh action (API fetch removed) */
 async function refreshViewer() {
-  await fetchVisitor()
-  pulseViewer()
-}
-
-/* ✅ get totals.pageviews */
-const toNumber = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
-
-const getTotalsPageviews = (payload) => {
-  return toNumber(payload?.totals?.pageviews ?? 0)
-}
-
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } })
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  return res.json()
-}
-
-async function fetchVisitor() {
-  try {
-    const [dayJson, weekJson] = await Promise.all([
-      fetchJson(VISITOR_1D_URL),
-      fetchJson(VISITOR_7D_URL),
-    ])
-
-    // ✅ ตามที่ขอ: เอาค่า totals.pageviews ไปใส่
-    viewerToday.value = getTotalsPageviews(dayJson)
-    viewerWeek.value = getTotalsPageviews(weekJson)
-  } catch (e) {
-    console.error("Fetch visitor failed:", e)
-    // keep old values if fetch fails
-  }
+  pulseViewer();
 }
 
 function pulseViewer() {
-  const wrap = viewerWrapRef.value
-  if (!wrap) return
+  const wrap = viewerWrapRef.value;
+  if (!wrap) return;
 
   gsap.fromTo(
     wrap,
     { y: 0 },
     { y: -6, duration: 0.18, ease: "power2.out", yoyo: true, repeat: 1 }
-  )
+  );
 
   if (eyeIconRef.value) {
     gsap.fromTo(
       eyeIconRef.value,
       { scale: 1 },
       { scale: 1.08, duration: 0.18, ease: "power2.out", yoyo: true, repeat: 1 }
-    )
+    );
   }
 }
 
 function onKeydown(e) {
-  if (e.key === "Escape") closeViewer()
+  if (e.key === "Escape") closeViewer();
 }
 
 onMounted(async () => {
-  window.addEventListener("keydown", onKeydown)
+  window.addEventListener("keydown", onKeydown);
 
-  // ✅ load visitor stats on mount
-  await fetchVisitor()
+  await nextTick();
 
-  await nextTick()
-
-  // entrance
+  // Entrance animation
   if (viewerWrapRef.value) {
     gsap.from(viewerWrapRef.value, {
       y: 18,
@@ -335,10 +300,10 @@ onMounted(async () => {
       duration: 0.8,
       ease: "power3.out",
       delay: 0.1,
-    })
+    });
   }
 
-  // panel initial state
+  // Panel initial state
   if (viewerPanelRef.value) {
     gsap.set(viewerPanelRef.value, {
       height: 0,
@@ -346,32 +311,29 @@ onMounted(async () => {
       y: 8,
       pointerEvents: "none",
       overflow: "hidden",
-    })
+    });
   }
-})
+});
 
 onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKeydown)
-})
+  window.removeEventListener("keydown", onKeydown);
+});
 
 watch(viewerOpen, async (open) => {
-  await nextTick()
-  const panel = viewerPanelRef.value
-  if (!panel) return
+  await nextTick();
+  const panel = viewerPanelRef.value;
+  if (!panel) return;
 
-  gsap.killTweensOf(panel)
+  gsap.killTweensOf(panel);
 
   if (open) {
-    // ✅ refresh when open
-    await fetchVisitor()
-
-    gsap.set(panel, { pointerEvents: "auto" })
+    gsap.set(panel, { pointerEvents: "auto" });
     gsap.fromTo(
       panel,
       { height: 0, autoAlpha: 0, y: 10 },
       { height: "auto", autoAlpha: 1, y: 0, duration: 0.32, ease: "power2.out" }
-    )
-    pulseViewer()
+    );
+    pulseViewer();
   } else {
     gsap.to(panel, {
       height: 0,
@@ -380,7 +342,7 @@ watch(viewerOpen, async (open) => {
       duration: 0.22,
       ease: "power2.in",
       onComplete: () => gsap.set(panel, { pointerEvents: "none" }),
-    })
+    });
   }
-})
+});
 </script>
