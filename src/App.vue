@@ -5,9 +5,7 @@
 </template>
 
 <script setup lang="ts">
-// App shell intentionally stays minimal.
-// Global bootstrap logic lives in main.ts.
-// Route masking / analytics / visitor tracking live in router/index.ts.
+
 </script>
 
 <style scoped>

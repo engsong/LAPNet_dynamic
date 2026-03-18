@@ -156,7 +156,7 @@
           <span>ຮ່ວມງານກັບເຮົາ</span>
         </li>
 
-        <!-- About us (เดิมใช้ key = 'contact' ตาม script ของคุณ) -->
+        <!-- About us -->
         <li class="sidebar-item has-children" :class="{ 'is-open': openKey === 'contact' }">
           <div class="sidebar-item-main" @click="toggleMenu('contact')">
             <span class="sidebar-dot"></span>
@@ -218,41 +218,7 @@
             </div>
           </div>
 
-          <div class="viewerContainer" :class="{ 'is-open': viewerOpen }">
-            <button
-              ref="viewerBtnEl"
-              class="viewerBtn"
-              type="button"
-              aria-label="Open visitor overlay"
-              @click.stop="toggleViewer"
-            >
-              <i class="fa-solid fa-eye"></i>
-            </button>
-
-            <div ref="viewerPopoverEl" class="viewerPopover" aria-hidden="true" @click.stop>
-              <div class="viewerPopoverInner">
-                <div class="viewerTop">
-                  <div class="viewerTitle">Visitor</div>
-                  <button class="viewerClose" type="button" aria-label="Close" @click="closeViewer">✕</button>
-                </div>
-
-                <div class="viewerRow">
-                  <span class="viewerLabel">Views today</span>
-                  <span class="viewerChip">{{ viewerToday }}</span>
-                </div>
-
-                <div class="viewerRow">
-                  <span class="viewerLabel">Views this week</span>
-                  <span class="viewerChip chipBlue">{{ viewerWeek }}</span>
-                </div>
-
-                <div class="viewerActions">
-                  <button class="viewerAction" type="button" @click="refreshViewer">↻ Refresh</button>
-                  <button class="viewerAction ghost" type="button" @click="closeViewer">Close</button>
-                </div>
-              </div>
-            </div>
-          </div>
+        
         </div>
       </footer>
     </nav>
@@ -264,21 +230,15 @@ import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { gsap } from 'gsap'
 import { defineExpose } from 'vue'
 import { useRouter } from 'vue-router'
+
 const router = useRouter()
 
 const openKey = ref(null)
-const toggleMenu = (key) => {
-  openKey.value = openKey.value === key ? null : key
-}
-
 const isOpen = ref(false)
 
 const sidebarEl = ref(null)
 const backdropEl = ref(null)
 
-/* ===========================
-   ✅ Visitor overlay state + API
-   =========================== */
 const viewerOpen = ref(false)
 const viewerToday = ref(0)
 const viewerWeek = ref(0)
@@ -286,45 +246,25 @@ const viewerWeek = ref(0)
 const viewerPopoverEl = ref(null)
 const viewerBtnEl = ref(null)
 
-const VISITOR_1D_URL = 'http://localhost:3000/api/visitor/stats?range=1d'
-const VISITOR_7D_URL = 'http://localhost:3000/api/visitor/stats?range=7d'
-
-const toNumber = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
-const getTotalsPageviews = (payload) => toNumber(payload?.totals?.pageviews ?? 0)
-
-const fetchJson = async (url) => {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  return res.json()
-}
-
-const fetchVisitor = async () => {
-  try {
-    const [dayJson, weekJson] = await Promise.all([fetchJson(VISITOR_1D_URL), fetchJson(VISITOR_7D_URL)])
-    viewerToday.value = getTotalsPageviews(dayJson)
-    viewerWeek.value = getTotalsPageviews(weekJson)
-  } catch (e) {
-    console.error('Fetch visitor failed:', e)
-    // keep old values if API fails
-  }
+const toggleMenu = (key) => {
+  openKey.value = openKey.value === key ? null : key
 }
 
 const toggleViewer = () => {
   viewerOpen.value = !viewerOpen.value
 }
+
 const closeViewer = () => {
   viewerOpen.value = false
 }
-const refreshViewer = async () => {
-  await fetchVisitor()
+
+const refreshViewer = () => {
   pulseViewer()
 }
 
 const pulseViewer = () => {
   if (!viewerBtnEl.value) return
+
   gsap.fromTo(
     viewerBtnEl.value,
     { scale: 1 },
@@ -334,6 +274,7 @@ const pulseViewer = () => {
 
 const initPosition = () => {
   if (!sidebarEl.value || !backdropEl.value) return
+
   gsap.set(sidebarEl.value, { x: '100%' })
   gsap.set(backdropEl.value, { opacity: 0 })
   isOpen.value = false
@@ -341,6 +282,7 @@ const initPosition = () => {
 
 const openSidebar = () => {
   if (!sidebarEl.value) return
+
   isOpen.value = true
 
   gsap.to(sidebarEl.value, { duration: 0.45, x: 0, ease: 'power3.out' })
@@ -352,6 +294,7 @@ const openSidebar = () => {
 
 const closeSidebar = () => {
   if (!sidebarEl.value) return
+
   isOpen.value = false
   viewerOpen.value = false
 
@@ -370,12 +313,15 @@ const onKeydown = (e) => {
   if (e.key === 'Escape') closeViewer()
 }
 
+const goTo = (path) => {
+  router.push(path)
+}
+
 onMounted(async () => {
   initPosition()
   window.addEventListener('resize', initPosition)
   window.addEventListener('keydown', onKeydown)
 
-  await fetchVisitor()
   await nextTick()
 
   if (viewerPopoverEl.value) {
@@ -400,11 +346,6 @@ defineExpose({
   toggleSidebar
 })
 
-const goTo = (path) => {
-  router.push(path)
-}
-
-/* ✅ animate viewer popover */
 watch(
   () => viewerOpen.value,
   async (open) => {
@@ -415,8 +356,6 @@ watch(
     gsap.killTweensOf(el)
 
     if (open) {
-      await fetchVisitor()
-
       gsap.set(el, { pointerEvents: 'auto' })
       gsap.to(el, { autoAlpha: 1, y: 0, scale: 1, duration: 0.22, ease: 'power2.out' })
       el.setAttribute('aria-hidden', 'false')
@@ -439,18 +378,17 @@ watch(
 </script>
 
 <style scoped>
-/* ✅ โครงสร้างแบบตัวอย่าง: wrapper คุม pointer-events */
 .sidebar-wrapper {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 99999;
 }
+
 .sidebar-wrapper--active {
   pointer-events: auto;
 }
 
-/* Backdrop */
 .sidebar-backdrop {
   position: absolute;
   inset: 0;
@@ -458,11 +396,11 @@ watch(
   opacity: 0;
   pointer-events: none;
 }
+
 .sidebar-backdrop--active {
   pointer-events: auto;
 }
 
-/* Sidebar panel */
 .lapnet-sidebar {
   position: absolute;
   top: 0;
@@ -481,7 +419,6 @@ watch(
   pointer-events: auto;
 }
 
-/* Inner glow frame */
 .lapnet-sidebar::before {
   content: '';
   position: absolute;
@@ -491,7 +428,6 @@ watch(
   pointer-events: none;
 }
 
-/* Header / brand */
 .sidebar-header {
   padding-bottom: 14px;
   border-bottom: 1px dashed rgba(148, 163, 184, 0.4);
@@ -516,6 +452,7 @@ watch(
   color: rgba(255, 255, 255, 0.92);
   cursor: pointer;
 }
+
 .closeBtn:hover {
   filter: brightness(1.08);
 }
@@ -527,6 +464,7 @@ watch(
   overflow: hidden;
   box-shadow: 0 0 18px rgba(59, 130, 246, 0.7);
 }
+
 .brand-orb img {
   width: 100%;
   height: 100%;
@@ -552,7 +490,6 @@ watch(
   color: #9ca3af;
 }
 
-/* Nav */
 .sidebar-nav {
   list-style: none;
   margin: 16px 0 0;
@@ -599,6 +536,7 @@ watch(
 .sidebar-dot--pulse {
   position: relative;
 }
+
 .sidebar-dot--pulse::after {
   content: '';
   position: absolute;
@@ -608,12 +546,18 @@ watch(
   opacity: 0.6;
   animation: sidebarPulse 2s infinite ease-out;
 }
+
 @keyframes sidebarPulse {
-  0% { transform: scale(0.9); opacity: 0.9; }
-  100% { transform: scale(1.4); opacity: 0; }
+  0% {
+    transform: scale(0.9);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
 }
 
-/* Dropdown */
 .has-children {
   display: flex;
   flex-direction: column;
@@ -652,11 +596,13 @@ watch(
   justify-content: center;
   font-size: 0.6rem;
 }
+
 .sidebar-arrow::before {
   content: '▾';
   transition: transform 0.18s ease;
   color: #e5e7eb;
 }
+
 .has-children.is-open .sidebar-arrow::before {
   transform: rotate(180deg);
 }
@@ -671,30 +617,27 @@ watch(
   width: 100%;
 }
 
-/* ✅ ทำให้ subitem เป็นแถว: icon + text (เหมือนตัวอย่างก่อน) */
 .sidebar-subitem {
   font-size: 1rem;
   padding: 6px 8px;
   border-radius: 10px;
   color: #cbd5f5;
   cursor: pointer;
-
   display: flex;
   align-items: flex-start;
   gap: 10px;
-
   background: rgba(15, 23, 42, 0.75);
   border: 1px solid rgba(148, 163, 184, 0.35);
   backdrop-filter: blur(10px);
   transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
 }
+
 .sidebar-subitem:hover {
   background: radial-gradient(circle at 0 0, rgba(56, 189, 248, 0.4), rgba(15, 23, 42, 0.95));
   box-shadow: 0 0 16px rgba(56, 189, 248, 0.55);
   transform: translateX(2px);
 }
 
-/* ✅ icon wrapper */
 .subicon {
   width: 20px;
   flex: 0 0 20px;
@@ -704,11 +647,11 @@ watch(
   margin-top: 2px;
   opacity: 0.95;
 }
+
 .subicon i {
   font-size: 16px;
 }
 
-/* Footer */
 .sidebar-footer {
   margin-top: auto;
   padding-top: 14px;
@@ -717,7 +660,6 @@ watch(
   z-index: 1;
 }
 
-/* ✅ row for separate containers */
 .footerRow {
   display: flex;
   align-items: center;
@@ -753,15 +695,16 @@ watch(
   font-size: 0.7rem;
   color: #e5e7eb;
 }
+
 .status-text span {
   font-size: 0.75rem;
   font-weight: 500;
 }
+
 .status-text small {
   color: #9ca3af;
 }
 
-/* Viewer container + overlay */
 .viewerContainer {
   position: relative;
   display: flex;
@@ -769,6 +712,7 @@ watch(
   justify-content: center;
   z-index: 1;
 }
+
 .viewerContainer.is-open {
   z-index: 9999;
 }
@@ -785,8 +729,9 @@ watch(
   place-items: center;
   box-shadow:
     0 0 14px rgba(56, 189, 248, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
+
 .viewerBtn:hover {
   box-shadow:
     0 0 18px rgba(56, 189, 248, 0.5),
@@ -820,7 +765,7 @@ watch(
   gap: 10px;
   padding-bottom: 10px;
   margin-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .viewerTitle {
@@ -838,8 +783,9 @@ watch(
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
 }
+
 .viewerClose:hover {
-  background: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .viewerRow {
@@ -862,13 +808,13 @@ watch(
   padding: 6px 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.92);
 }
 
 .chipBlue {
   border: 1px solid rgba(56, 189, 248, 0.28);
-  background: rgba(56, 189, 248, 0.10);
+  background: rgba(56, 189, 248, 0.1);
 }
 
 .viewerActions {
@@ -887,9 +833,11 @@ watch(
   font-weight: 900;
   color: rgba(255, 255, 255, 0.92);
 }
+
 .viewerAction:hover {
   background: linear-gradient(90deg, rgba(56, 189, 248, 0.24), rgba(14, 165, 233, 0.08));
 }
+
 .viewerAction.ghost {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.06);
