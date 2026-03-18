@@ -7,7 +7,6 @@
     <meta name="theme-color" content="#0b1020" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
 
-    <!-- Dev-friendly CSP -->
     <meta
       http-equiv="Content-Security-Policy"
       content="
@@ -16,9 +15,9 @@
         object-src 'none';
         form-action 'self';
         script-src 'self';
-        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
+        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
         img-src 'self' data: blob: https: http://localhost:3000 http://127.0.0.1:3000;
-        font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com;
+        font-src 'self' data: https://cdnjs.cloudflare.com;
         connect-src 'self'
           http://localhost:3000
           http://127.0.0.1:3000
@@ -45,14 +44,6 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/favicon/android-chrome-512x512.png" />
 
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-
-    <!-- Google Fonts -->
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+Lao:wght@100..900&display=swap"
-    />
 
     <!-- Font Awesome -->
     <link
@@ -71,24 +62,6 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     />
-
-    <style>
-      @font-face {
-        font-family: Noto Sans Lao;
-        src: url(/src/assets/fonts/NotoSansLao-VariableFont_wdth\,wght.ttf);
-      }
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-        font-family:Noto Sans Lao, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      
-      }
-
-      a {
-        text-decoration: none;
-      }
-    </style>
   </head>
 
   <body>

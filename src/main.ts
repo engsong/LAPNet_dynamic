@@ -3,6 +3,8 @@ import { createApp } from 'vue';
 
 import router from './router';
 import { gsap } from "gsap";
+import '../src/style/fonts.css'
+
 import App from './App.vue';
 import './mainstyle.css'
 import AOS from 'aos'
