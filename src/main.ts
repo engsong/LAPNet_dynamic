@@ -2,7 +2,7 @@
 import { createApp } from 'vue';
 
 import router from './router';
-import { gsap } from "gsap";
+
 import '../src/style/fonts.css'
 
 import App from './App.vue';
@@ -14,6 +14,5 @@ AOS.init();
 
 console.log("[env] VITE_API_BASE_URL =", import.meta.env.VITE_API_BASE_URL);
 
-App.use(gsap)
 
 

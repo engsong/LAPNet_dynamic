@@ -15,9 +15,10 @@
         object-src 'none';
         form-action 'self';
         script-src 'self';
-        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
+        style-src-elem 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
         img-src 'self' data: blob: https: http://localhost:3000 http://127.0.0.1:3000;
-        font-src 'self' data: https://cdnjs.cloudflare.com;
+        font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com;
         connect-src 'self'
           http://localhost:3000
           http://127.0.0.1:3000
@@ -44,6 +45,8 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/favicon/android-chrome-512x512.png" />
 
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
     <!-- Font Awesome -->
     <link
