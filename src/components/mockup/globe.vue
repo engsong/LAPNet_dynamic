@@ -8,9 +8,7 @@
 import { ref, onMounted, onBeforeUnmount, computed } from "vue";
 import * as THREE from "three";
 import gsap from "gsap";
-// console.log("[ENV] MODE =", import.meta.env.MODE);
-// console.log("[ENV] VITE_API_BASE_URL =", import.meta.env.VITE_API_BASE_URL);
-// console.log("[ENV] keys =", Object.keys(import.meta.env || {}));
+
 type Endpoint = {
   idmember?: number; // ✅ keep idmember for sorting / debugging
   name?: string;
@@ -140,7 +138,7 @@ const props = withDefaults(
     focusLat: 18.0,
     focusLon: 103.0,
 
-    landMaskUrl: "/textures/earth-mask.png",
+
 
     dotPulseSpeed: 0.6,
 
