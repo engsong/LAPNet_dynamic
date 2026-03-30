@@ -2,10 +2,7 @@
   <section class="card-section">
     <div class="card-header">
       <h2 class="card-title">ຂ່າວສານ ແລະ ກິດຈະກຳ</h2>
-      <div class="titlelapnet">
-        <img src="/logolapnet/logolapnet.PNG" style="width: 30px; height: 30px" alt="" />
-        <p class="card-subtitle">Lao Nationnal Payment Network CO., LTD</p>
-      </div>
+     
     </div>
 
     <!-- Render Swiper only after data is ready (fix autoplay not starting until drag) -->
